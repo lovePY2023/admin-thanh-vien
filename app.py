@@ -15,29 +15,40 @@ DANH_MUC_KHU_VUC = ["Gò Vấp", "Quận 12", "Bình Thạnh", "Phú Nhuận", "
 DANH_MUC_CONG_VIEC = ["Vệ sinh máy lạnh", "Bơm Gas", "Sửa máy không lạnh", "Sửa máy chảy nước", "Tháo lắp máy", "Sửa Board", "Khác..."]
 DANH_MUC_CHOT = ["Chưa Gọi", "Từ Chối", "Đã Chốt"]
 
-# --- CSS TỐI ƯU: CHỮ TO - GIAO DIỆN GỌN ---
+# --- CSS TỐI ƯU: GỌI NHANH & CHỮ TO ---
 st.markdown("""
     <style>
     .header-style { font-size:20px; font-weight:bold; color: #1E88E5; border-bottom: 2px solid #1E88E5; margin-top: 20px; }
     .today-label { color: white; background-color: #ff4b4b; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
     
-    /* Tên khách hàng màu đen, to rõ */
-    .customer-name { font-size: 18px; font-weight: 800; color: #000000; margin-bottom: 4px; }
+    /* Tên và Nút Gọi nhanh */
+    .title-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 10px; }
+    .customer-name { font-size: 18px; font-weight: 800; color: #000000; }
+    .call-link { 
+        text-decoration: none !important; 
+        background-color: #e3f2fd; 
+        color: #1e88e5 !important; 
+        padding: 5px 12px; 
+        border-radius: 20px; 
+        font-weight: bold; 
+        font-size: 15px;
+        border: 1px solid #bbdefb;
+    }
+    
     .address-text { font-size: 15px; color: #333; line-height: 1.4; margin-bottom: 5px; }
     
-    /* Các khung trạng thái */
+    /* Khung trạng thái */
     .note-box { background-color: #fffde7; padding: 10px; border-radius: 5px; font-size: 14px; border-left: 5px solid #fbc02d; margin: 8px 0; color: #333; }
-    .chot-box { background-color: #e8f5e9; padding: 8px; border-radius: 5px; font-size: 14px; border: 1px solid #4caf50; color: #2e7d32; font-weight: bold; text-align: center; }
+    .chot-box { background-color: #e8f5e9; padding: 6px; border-radius: 5px; font-size: 13px; border: 1px solid #4caf50; color: #2e7d32; font-weight: bold; text-align: center; }
     
-    /* Ẩn label để gọn */
-    .stSelectbox label, .stTextInput label { display: none; }
-    
-    /* Nút Hoàn Thành màu Xanh Lá */
+    /* Custom nút Hoàn Thành xanh lá */
     div.stButton > button[kind="primary"] {
         background-color: #28a745 !important;
         color: white !important;
         border: none !important;
     }
+    
+    .stSelectbox label, .stTextInput label { display: none; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -94,8 +105,15 @@ def render_grid(days_list):
                     chot = job.get('ChotViec', 'Chưa Gọi') or "Chưa Gọi"
                     
                     with st.container(border=True):
-                        # --- PHẦN QUAN SÁT (HIỆN SẴN) ---
-                        st.markdown(f"<div class='customer-name'>{job['TenKH']}</div>", unsafe_allow_html=True)
+                        # --- DÒNG TIÊU ĐỀ: TÊN & GỌI NHANH ---
+                        st.markdown(f"""
+                            <div class="title-row">
+                                <span class="customer-name">{job['TenKH']}</span>
+                                <a href="tel:{job['SoDT']}" class="call-link">📞 {job['SoDT']}</a>
+                            </div>
+                        """, unsafe_allow_html=True)
+
+                        # --- THÔNG TIN ĐỊA CHỈ & VIỆC ---
                         st.markdown(f"<div class='address-text'>📍 {job['KhuVuc']} - {job['DiaChi']}</div>", unsafe_allow_html=True)
                         
                         if chot == "Đã Chốt":
@@ -106,14 +124,11 @@ def render_grid(days_list):
                         if job.get("GhiChuThem"):
                             st.markdown(f"<div class='note-box'>📝 {job['GhiChuThem']}</div>", unsafe_allow_html=True)
 
-                        # --- PHẦN THAO TÁC (ẨN TRONG NÚT) ---
+                        # --- PHẦN THAO TÁC (KHÔNG CẦN NÚT GỌI NỮA) ---
                         if stt != "Hoàn thành":
-                            with st.popover("⚙️ Thao tác / Xong", use_container_width=True):
-                                # Nút gọi
-                                st.markdown(f'<a href="tel:{job["SoDT"]}" style="text-decoration:none; display:block; text-align:center; background:#1e88e5; color:white; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px;">📞 GỌI: {job["SoDT"]}</a>', unsafe_allow_html=True)
-                                
-                                # Cập nhật Chốt việc
-                                st.write("Trạng thái CSKH:")
+                            with st.popover("⚙️ Cập nhật / Xong", use_container_width=True):
+                                # Trạng thái CSKH
+                                st.write("Trạng thái chốt việc:")
                                 idx_ch = DANH_MUC_CHOT.index(chot) if chot in DANH_MUC_CHOT else 0
                                 moi_ch = st.selectbox("S", DANH_MUC_CHOT, index=idx_ch, key=f"s_{job['id']}")
                                 if moi_ch != chot:
@@ -123,7 +138,7 @@ def render_grid(days_list):
                                     st.rerun()
 
                                 # Ghi chú & Hoàn thành
-                                note_val = st.text_input("Ghi chú vật tư:", key=f"in_{job['id']}", value=job.get("GhiChuThem", ""))
+                                note_val = st.text_input("Ghi chú thêm:", key=f"in_{job['id']}", value=job.get("GhiChuThem", ""))
                                 
                                 if st.button("💾 LƯU GHI CHÚ", key=f"v_{job['id']}", use_container_width=True):
                                     supabase.table("LichLamViec").update({"GhiChuThem": note_val}).eq("id", job['id']).execute()
