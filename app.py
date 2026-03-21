@@ -1,63 +1,70 @@
 import streamlit as st
 from supabase import create_client
 
-# 1. Kết nối Supabase (GỌI TÊN BIẾN từ Secrets - ĐÚNG CÁCH)
-# Lưu ý: "SUPABASE_URL" và "SUPABASE_KEY" là tên bạn đặt trong mục Settings -> Secrets trên web
+# Kết nối
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
-# ... (các phần bên dưới giữ nguyên)
-
-# Cấu hình trang tối ưu cho di động
 st.set_page_config(page_title="Thành Viễn Admin", layout="centered")
 
-st.title("❄️ Điện lạnh Thành Viễn")
+# --- PHẦN 1: ĐỊNH DANH ---
+st.sidebar.title("🔑 Đăng nhập")
+ma_tho = st.sidebar.text_input("Nhập Mã Thợ (VD: TV01)", type="password")
 
-# 2. Tạo Menu dạng TAB (Mobile First)
-tab1, tab2 = st.tabs(["📝 NHẬP VIỆC", "🔍 TRA CỨU"])
+if not ma_tho:
+    st.info("Vui lòng nhập Mã Thợ ở thanh bên trái để bắt đầu.")
+    st.stop()
 
-# --- TAB 1: NHẬP CÔNG VIỆC MỚI ---
-with tab1:
-    st.subheader("Ghi nhận ca máy mới")
-    with st.form("input_form", clear_on_submit=True):
-        noidung = st.text_area("Nội dung công việc (Địa chỉ, lỗi máy...)", placeholder="VD: Sửa máy giặt Q.Gò Vấp...")
-        submit = st.form_submit_button("💾 LƯU HỆ THỐNG")
+st.title(f"🛠️ Hệ thống Thành Viễn - Thợ: {ma_tho}")
+
+# --- PHẦN 2: TÓM TẮT CHỈ SỐ ---
+res = supabase.table("LichLamViec").select("*").execute()
+data = res.data
+
+cho = len([t for t in data if t.get('TrangThai') == "Chờ xử lý"])
+dang = len([t for t in data if t.get('TrangThai') == "Đang làm"])
+xong = len([t for t in data if t.get('TrangThai') == "Hoàn thành"])
+
+c1, c2, c3 = st.columns(3)
+c1.metric("🔴 Chờ", cho)
+c2.metric("🟡 Làm", dang)
+c3.metric("🟢 Xong", xong)
+
+# --- PHẦN 3: GIAO DIỆN TAB ---
+t1, t2 = st.tabs(["➕ Nhập việc mới", "📋 Danh sách việc"])
+
+with t1:
+    with st.form("f_nhap"):
+        nd = st.text_area("Nội dung (Khách hàng, địa chỉ, tình trạng máy...)")
+        if st.form_submit_button("Gửi dữ liệu"):
+            supabase.table("LichLamViec").insert({
+                "Viec": nd, 
+                "TrangThai": "Chờ xử lý",
+                "NguoiThucHien": ma_tho
+            }).execute()
+            st.success("Đã thêm việc thành công!")
+            st.rerun()
+
+with t2:
+    for task in data:
+        stt = task.get('TrangThai', 'Chờ xử lý')
+        bg_color = "🔴" if stt == "Chờ xử lý" else "🟡" if stt == "Đang làm" else "✅"
         
-        if submit and noidung:
-            try:
-                # Gửi dữ liệu lên bảng 'LichLamViec'
-                # Cột 'Viec' phải khớp 100% với tên cột trên Supabase của bạn
-                data = supabase.table("LichLamViec").insert({"Viec": noidung}).execute()
-                st.success("✅ Đã lưu thành công!")
-                st.balloons()
-            except Exception as e:
-                st.error(f"Lỗi: {e}")
-
-# --- TAB 2: THÔNG TIN & TÌM KIẾM ---
-with tab2:
-    st.subheader("Danh sách lịch làm")
-    search_query = st.text_input("🔍 Tìm tên khách, địa chỉ hoặc thiết bị...")
-    
-    try:
-        # Lấy dữ liệu từ Supabase, sắp xếp cái mới nhất lên đầu (id giảm dần)
-        response = supabase.table("LichLamViec").select("*").order("id", desc=True).execute()
-        records = response.data
-        
-        if records:
-            # Bộ lọc tìm kiếm thông minh
-            if search_query:
-                records = [r for r in records if search_query.lower() in str(r.get('Viec', '')).lower()]
+        with st.expander(f"{bg_color} {task['Viec'][:40]}..."):
+            st.write(f"**Chi tiết:** {task['Viec']}")
+            st.write(f"**Người làm:** {task.get('NguoiThucHien')}")
             
-            # Hiển thị dạng Card cho dễ đọc trên điện thoại
-            for item in records:
-                with st.container(border=True):
-                    st.write(f"**ID:** {item['id']}")
-                    st.write(f"📍 {item.get('Viec', 'N/A')}")
-                    # Nếu bạn có cột created_at (mặc định của Supabase)
-                    if 'created_at' in item:
-                        st.caption(f"⏰ {item['created_at'][:16].replace('T', ' ')}")
-        else:
-            st.info("Chưa có dữ liệu nào.")
-    except Exception as e:
-        st.error(f"Lỗi tải dữ liệu: {e}")
+            # Nút bấm cập nhật trạng thái
+            if stt == "Chờ xử lý":
+                if st.button(f"🚀 Bắt đầu làm #{task['id']}"):
+                    supabase.table("LichLamViec").update({"TrangThai": "Đang làm"}).eq("id", task['id']).execute()
+                    st.rerun()
+            elif stt == "Đang làm":
+                vt = st.text_input(f"Vật tư đã dùng cho ca #{task['id']}", placeholder="VD: 1kg gas, 2 tụ...")
+                if st.button(f"✔️ Hoàn thành #{task['id']}"):
+                    supabase.table("LichLamViec").update({
+                        "TrangThai": "Hoàn thành",
+                        "VatTuSuDung": vt
+                    }).eq("id", task['id']).execute()
+                    st.rerun()
