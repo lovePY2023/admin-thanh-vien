@@ -1,6 +1,7 @@
 import streamlit as st
 from supabase import create_client
 from datetime import datetime, timedelta
+import pytz
 
 # ==========================================
 # ⚙️ CÀI ĐẶT DANH MỤC
@@ -15,24 +16,21 @@ supabase = create_client(url, key)
 
 st.set_page_config(page_title="Thành Viễn Admin", layout="wide")
 
-# --- CSS TỐI ƯU THẺ CÔNG VIỆC (HIỂN THỊ HẾT) ---
+# --- CSS GIAO DIỆN ---
 st.markdown("""
     <style>
-    .header-style {
-        font-size:20px; font-weight:bold; color: #1E88E5; 
-        padding: 10px 0; border-bottom: 2px solid #1E88E5; margin-bottom: 10px;
-    }
-    .today-label { color: white; background-color: #ff4b4b; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-left: 10px; }
-    .tomorrow-label { color: white; background-color: #ffa500; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-left: 10px; }
-    
-    /* Làm cho text trong container rõ ràng hơn */
-    .job-info { font-size: 14px; line-height: 1.4; margin-bottom: 8px; }
-    .job-title { font-size: 16px; font-weight: bold; margin-bottom: 5px; border-bottom: 1px dashed #ddd; padding-bottom: 3px; }
+    .header-style { font-size:20px; font-weight:bold; color: #1E88E5; border-bottom: 2px solid #1E88E5; margin-bottom: 15px; }
+    .today-label { color: white; background-color: #ff4b4b; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+    .job-title { font-size: 17px; font-weight: bold; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+    .status-badge { font-size: 11px; padding: 2px 5px; border-radius: 4px; background-color: #f0f2f6; color: #555; font-weight: normal; }
+    .note-box { background-color: #fff9c4; padding: 5px; border-radius: 5px; font-size: 13px; border-left: 3px solid #fbc02d; margin-top: 5px; }
     </style>
     """, unsafe_allow_html=True)
 
 # --- 2. XỬ LÝ THỜI GIAN ---
-today = datetime.now().date()
+tz = pytz.timezone('Asia/Ho_Chi_Minh')
+now_vn = datetime.now(tz)
+today = now_vn.date()
 tomorrow = today + timedelta(days=1)
 start_week = today - timedelta(days=today.weekday())
 this_week = [start_week + timedelta(days=i) for i in range(7)]
@@ -43,11 +41,9 @@ days_vn = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Ch
 res = supabase.table("LichLamViec").select("*").execute()
 all_data = res.data
 
-st.title("❄️ Điện lạnh Thành Viễn")
+st.title("❄️ Điều hành Thành Viễn")
 
-# ==========================================
-# PHẦN 1: FORM NHẬP LIỆU (Giữ nguyên)
-# ==========================================
+# --- PHẦN FORM NHẬP ---
 with st.expander("➕ THÊM CA MÁY MỚI", expanded=False):
     with st.form("f_nhap", clear_on_submit=True):
         c1, c2 = st.columns(2)
@@ -59,28 +55,25 @@ with st.expander("➕ THÊM CA MÁY MỚI", expanded=False):
             khu_vuc = st.selectbox("Khu vực", DANH_MUC_KHU_VUC)
             dia_chi = st.text_input("Địa chỉ chi tiết")
             cv_chon = st.selectbox("Loại công việc", DANH_MUC_CONG_VIEC)
-        ghi_chu = st.text_area("Ghi chú chi tiết")
-        if st.form_submit_button("LƯU HỆ THỐNG"):
+        ghi_chu = st.text_area("Yêu cầu/Tình trạng ban đầu")
+        if st.form_submit_button("LƯU VÀO HỆ THỐNG"):
             if ten_kh and sdt:
-                noidung_full = f"{cv_chon} | {ghi_chu}" if ghi_chu else cv_chon
                 supabase.table("LichLamViec").insert({
                     "TenKH": ten_kh, "SoDT": sdt, "DiaChi": dia_chi,
-                    "KhuVuc": khu_vuc, "CongViec": noidung_full,
-                    "NgayHen": str(ngay), "TrangThai": "Chờ xử lý"
+                    "KhuVuc": khu_vuc, "CongViec": f"{cv_chon} | {ghi_chu}",
+                    "NgayHen": str(ngay), "TrangThai": "Chờ xử lý",
+                    "TrangThaiCSKH": "Chưa gọi"
                 }).execute()
                 st.rerun()
 
 # ==========================================
-# HÀM HIỂN THỊ GRID KHÔNG CẦN BẤM XEM CHI TIẾT
+# HÀM HIỂN THỊ GRID
 # ==========================================
 def render_full_grid(days_list):
     for i, d in enumerate(days_list):
         jobs = [j for j in all_data if j.get('NgayHen') == str(d)]
-        nhan = ""
-        if d == today: nhan = '<span class="today-label">HÔM NAY</span>'
-        elif d == tomorrow: nhan = '<span class="tomorrow-label">NGÀY MAI</span>'
-        
-        st.markdown(f"#### {days_vn[i]} ({d.strftime('%d/%m')}) {nhan}", unsafe_allow_html=True)
+        nhan = f' <span class="today-label">HÔM NAY</span>' if d == today else ""
+        st.markdown(f"#### {days_vn[i]} ({d.strftime('%d/%m')}){nhan}", unsafe_allow_html=True)
         
         if not jobs:
             st.caption("Trống lịch")
@@ -89,40 +82,65 @@ def render_full_grid(days_list):
             for idx, job in enumerate(jobs):
                 with cols[idx % 2]:
                     stt = job.get('TrangThai', 'Chờ xử lý')
-                    color = "🔴" if stt == "Chờ xử lý" else "🟡" if stt == "Đang làm" else "✅"
+                    cskh = job.get('TrangThaiCSKH', 'Chưa gọi')
                     
-                    # TẤT CẢ THÔNG TIN HIỆN TRÊN THẺ
                     with st.container(border=True):
-                        st.markdown(f"<div class='job-title'>{color} {job['TenKH']}</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='job-title'>{job['TenKH']} <span class='status-badge'>{cskh}</span></div>", unsafe_allow_html=True)
                         st.markdown(f"📍 **{job['KhuVuc']}**: {job['DiaChi']}")
-                        st.markdown(f"🛠️ **Việc**: {job.get('CongViec', 'Chưa có nội dung')}")
-                        st.markdown(f"📞 **SĐT**: {job['SoDT']}")
+                        st.markdown(f"🛠️ **Việc**: {job.get('CongViec')}")
                         
-                        st.write("") # Tạo khoảng cách nhỏ
+                        # Hiển thị Ghi chú thêm nếu đã có dữ liệu
+                        if job.get("GhiChuThem"):
+                            st.markdown(f"<div class='note-box'>📝 <b>Ghi chú:</b> {job['GhiChuThem']}</div>", unsafe_allow_html=True)
                         
-                        # CÁC NÚT BẤM THAO TÁC (DÀN HÀNG NGANG)
-                        btn_c1, btn_c2 = st.columns(2)
+                        st.divider()
+
+                        # 1. NÚT GỌI (Luôn hiện trên cùng)
+                        st.markdown(f'<a href="tel:{job["SoDT"]}" style="text-decoration:none; display:block; text-align:center; background:#e3f2fd; color:#1e88e5; padding:8px; border-radius:5px; font-weight:bold; border:1px solid #bbdefb; margin-bottom:10px;">📞 GỌI KHÁCH: {job["SoDT"]}</a>', unsafe_allow_html=True)
                         
-                        if stt == "Chờ xử lý":
-                            if btn_c1.button(f"🚀 Nhận", key=f"nh_{job['id']}", use_container_width=True):
-                                supabase.table("LichLamViec").update({"TrangThai":"Đang làm"}).eq("id", job['id']).execute()
+                        # 2. XỬ LÝ CSKH (Chưa gọi)
+                        if cskh == "Chưa gọi":
+                            col_cskh1, col_cskh2 = st.columns(2)
+                            if col_cskh1.button(f"✅ KHÁCH CHỐT", key=f"chot_{job['id']}", use_container_width=True):
+                                supabase.table("LichLamViec").update({"TrangThaiCSKH": "Khách Chốt"}).eq("id", job['id']).execute()
                                 st.rerun()
-                        elif stt == "Đang làm":
-                            if btn_c1.button(f"✅ Xong", key=f"xo_{job['id']}", use_container_width=True):
-                                supabase.table("LichLamViec").update({"TrangThai":"Hoàn thành"}).eq("id", job['id']).execute()
+                            if col_cskh2.button(f"❌ KHÁCH HỦY", key=f"huy_{job['id']}", use_container_width=True):
+                                supabase.table("LichLamViec").update({"TrangThaiCSKH": "Khách Hủy", "TrangThai": "Hoàn thành"}).eq("id", job['id']).execute()
                                 st.rerun()
-                        
-                        # Nút gọi điện (Luôn hiện)
-                        st.markdown(f'<a href="tel:{job["SoDT"]}" style="text-decoration:none;"><button style="width:100%; border:1px solid #ddd; padding:6px; border-radius:5px; background-color:#e3f2fd; cursor:pointer;">📞 Gọi Khách</button></a>', unsafe_allow_html=True)
-                        
-                        # Nút xóa (Để nhỏ ở dưới)
-                        if btn_c2.button(f"🗑️ Xóa", key=f"del_{job['id']}", use_container_width=True):
+
+                        # 3. XỬ LÝ THỢ (Chỉ khi khách đã Chốt và chưa xong)
+                        if cskh == "Khách Chốt" and stt != "Hoàn thành":
+                            # Ô nhập ghi chú đa năng (CSKH hoặc Thợ đều gõ được)
+                            ghi_chu_input = st.text_input("Ghi chú thêm (Vật tư/Dặn dò):", key=f"note_{job['id']}", value=job.get("GhiChuThem", ""))
+                            
+                            col_action1, col_action2 = st.columns(2)
+                            if col_action1.button(f"💾 LƯU GHI CHÚ", key=f"save_{job['id']}", use_container_width=True):
+                                supabase.table("LichLamViec").update({"GhiChuThem": ghi_chu_input}).eq("id", job['id']).execute()
+                                st.rerun()
+                                
+                            if col_action2.button(f"✅ XONG CA", key=f"done_{job['id']}", use_container_width=True, type="primary"):
+                                time_now = datetime.now(tz).strftime("%H:%M - %d/%m/%Y")
+                                supabase.table("LichLamViec").update({
+                                    "TrangThai": "Hoàn thành",
+                                    "GhiChuThem": ghi_chu_input,
+                                    "ThoiGianXong": time_now
+                                }).eq("id", job['id']).execute()
+                                st.rerun()
+
+                        # 4. HIỂN THỊ KẾT QUẢ CUỐI CÙNG
+                        if stt == "Hoàn thành":
+                            if cskh == "Khách Hủy":
+                                st.error("Lịch đã Hủy")
+                            else:
+                                st.success(f"Hoàn thành lúc: {job.get('ThoiGianXong', 'N/A')}")
+
+                        # 5. NÚT XÓA (Dưới cùng)
+                        if st.button(f"🗑️ Xóa ca", key=f"del_{job['id']}", use_container_width=True, type="secondary"):
                             supabase.table("LichLamViec").delete().eq("id", job['id']).execute()
                             st.rerun()
 
 # --- HIỂN THỊ ---
 st.markdown('<p class="header-style">🗓️ LỊCH TRÌNH TUẦN NÀY</p>', unsafe_allow_html=True)
 render_full_grid(this_week)
-
 st.markdown('<p class="header-style">⏭️ KẾ HOẠCH TUẦN TIẾP THEO</p>', unsafe_allow_html=True)
 render_full_grid(next_week)
