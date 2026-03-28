@@ -4,182 +4,149 @@ from datetime import datetime
 
 # --- CẤU HÌNH TRANG ---
 st.set_page_config(
-    page_title="Thành Viễn ERP - Nhập Đơn Hàng",
-    page_icon="⚡",
+    page_title="Thành Viễn ERP - Hệ Thống Tổng Hợp",
+    page_icon="🏢",
     layout="wide"
 )
 
-# --- CSS TÙY CHỈNH GIỐNG MẪU EXCEL ---
+# --- CSS TÙY CHỈNH (Navbar & Giao diện) ---
 st.markdown("""
 <style>
-    .label-mb {
-        background-color: #c6d9f1; padding: 10px; border: 1px solid #95b3d7;
-        font-weight: bold; text-align: left; border-radius: 4px 0 0 4px;
-    }
-    .label-vt {
-        background-color: #f2dcda; padding: 10px; border: 1px solid #e6b8b7;
-        font-weight: bold; text-align: left; border-radius: 4px 0 0 4px;
-    }
-    .label-dien-lanh {
-        background-color: #e2efda; padding: 10px; border: 1px solid #c6e0b4;
-        font-weight: bold; text-align: left; border-radius: 4px 0 0 4px;
-    }
-    .stock-val {
-        background-color: #ffffff; padding: 10px; border: 1px solid #ccc;
-        text-align: center; font-family: monospace;
-    }
-    div[data-baseweb="input"] {
-        border-radius: 0 4px 4px 0 !important;
-    }
+    /* Style cho các label nhập nhanh */
+    .label-mb { background-color: #c6d9f1; padding: 10px; border: 1px solid #95b3d7; font-weight: bold; border-radius: 4px 0 0 4px; }
+    .label-vt { background-color: #f2dcda; padding: 10px; border: 1px solid #e6b8b7; font-weight: bold; border-radius: 4px 0 0 4px; }
+    .label-dl { background-color: #e2efda; padding: 10px; border: 1px solid #c6e0b4; font-weight: bold; border-radius: 4px 0 0 4px; }
+    .stock-val { background-color: #ffffff; padding: 10px; border: 1px solid #ccc; text-align: center; font-family: monospace; }
+    
+    /* Section Headers */
     .section-header {
-        padding: 10px;
-        background: #333;
-        color: white;
-        border-radius: 5px;
-        margin-bottom: 15px;
-        font-weight: bold;
+        padding: 10px; background: #333; color: white; border-radius: 5px; margin-bottom: 15px; font-weight: bold;
     }
-    .info-box {
-        background-color: #f0f2f6;
-        padding: 15px;
-        border-radius: 10px;
-        border-left: 5px solid #007bff;
-        margin-bottom: 20px;
-    }
+    
+    /* Loại bỏ padding mặc định của Streamlit để Navbar sát trần */
+    .main .block-container { padding-top: 2rem; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- KHỞI TẠO DỮ LIỆU ---
-def init_data():
-    if 'inv_telecom' not in st.session_state:
-        st.session_state.inv_telecom = {
-            "MB": [
-                {"name": "MB 20K", "stock": 110, "price": 20000},
-                {"name": "MB 50K", "stock": 104, "price": 50000},
-                {"name": "MB 100K", "stock": 113, "price": 100000},
-                {"name": "MB 200K", "stock": 97, "price": 200000},
-                {"name": "MB 500K", "stock": 100, "price": 500000},
-            ],
-            "VT": [
-                {"name": "VT 20K", "stock": 90, "price": 20000},
-                {"name": "VT 50K", "stock": 97, "price": 50000},
-                {"name": "VT 100K", "stock": 103, "price": 100000},
-                {"name": "VT 200K", "stock": 92, "price": 200000},
-                {"name": "VT 500K", "stock": 100, "price": 500000},
-            ]
-        }
+# --- KHỞI TẠO DỮ LIỆU GIẢ LẬP ---
+if 'db_inventory' not in st.session_state:
+    st.session_state.db_inventory = [
+        {"name": "MB 20K", "stock": 100, "price": 20000, "cat": "Viễn Thông"},
+        {"name": "VT 20K", "stock": 85, "price": 20000, "cat": "Viễn Thông"},
+        {"name": "Vệ sinh Máy lạnh", "stock": 999, "price": 150000, "cat": "Điện Lạnh"},
+    ]
+
+if 'db_history' not in st.session_state:
+    st.session_state.db_history = [] # Lưu nhật ký giao dịch
+
+# --- CÁC HÀM GIAO DIỆN PHÂN HỆ ---
+
+def page_ban_hang():
+    st.markdown('<div class="section-header">🛒 PHÂN HỆ BÁN HÀNG (POS)</div>', unsafe_allow_html=True)
     
-    if 'inv_cooling' not in st.session_state:
-        st.session_state.inv_cooling = [
-            {"name": "Vệ sinh Máy lạnh (Bộ)", "stock": "∞", "price": 150000, "unit": "Bộ"},
-            {"name": "Lắp máy mới (Công)", "stock": "∞", "price": 350000, "unit": "Bộ"},
-            {"name": "Ống đồng Phi 6/10", "stock": 150, "price": 160000, "unit": "Mét"},
-            {"name": "Gas R32 (Sạc bổ sung)", "stock": 20, "price": 250000, "unit": "Lần"},
-            {"name": "Gas R410A (Trọn gói)", "stock": 15, "price": 450000, "unit": "Bình"},
-            {"name": "Thay Tụ quạt/Block", "stock": 30, "price": 180000, "unit": "Cái"},
-        ]
+    # Form khách hàng
+    with st.expander("👤 Thông tin khách hàng", expanded=True):
+        c1, c2, c3 = st.columns([2, 1, 1])
+        cust_name = c1.text_input("Tên khách hàng")
+        cust_phone = c2.text_input("Số điện thoại")
+        cust_area = c3.selectbox("Khu vực", ["Quận 1", "Quận 3", "Bình Thạnh", "Gò Vấp"])
 
-init_data()
-
-def main():
-    st.title("⚡ Lập Đơn Hàng Thành Viễn")
+    # Nhập nhanh
+    st.write("---")
+    order_items = {}
+    col_l, col_r = st.columns(2)
     
-    # --- PHẦN 1: THÔNG TIN KHÁCH HÀNG (FULL FORM) ---
-    st.markdown('<div class="section-header">👤 THÔNG TIN KHÁCH HÀNG</div>', unsafe_allow_html=True)
-    with st.container():
-        row1_col1, row1_col2, row1_col3 = st.columns([2, 1, 1])
-        cust_name = row1_col1.text_input("Tên khách hàng / Đơn vị", placeholder="Nhập tên khách hàng...")
-        cust_phone = row1_col2.text_input("Số điện thoại", placeholder="090x.xxx.xxx")
-        order_date = row1_col3.date_input("Ngày chứng từ", datetime.now())
-
-        row2_col1, row2_col2, row2_col3 = st.columns([2, 1, 1])
-        cust_address = row2_col1.text_input("Địa chỉ chi tiết", placeholder="Số nhà, tên đường...")
-        cust_area = row2_col2.selectbox("Khu vực / Quận huyện", 
-                                        ["Quận 1", "Quận 3", "Quận Bình Thạnh", "Quận Gò Vấp", "Quận Tân Bình", "Khác"])
-        sale_mode = row2_col3.radio("PHÂN HỆ BÁN HÀNG", ["Viễn Thông", "Điện Lạnh"], horizontal=True)
-
-    st.write("")
-    order_items = {} 
-
-    # --- PHẦN 2: NHẬP SỐ LƯỢNG (QUICK GRID) ---
-    if sale_mode == "Viễn Thông":
-        st.markdown('<div class="section-header">📶 PHÂN HỆ VIỄN THÔNG (THỂ CÀO)</div>', unsafe_allow_html=True)
-        col_left, col_right = st.columns(2)
+    # Giả lập nhập nhanh cho 2 món tiêu biểu
+    with col_l:
+        st.markdown('<div class="label-mb">MB 20K (Tồn: 100)</div>', unsafe_allow_html=True)
+        qty_mb = st.number_input("Số lượng MB", min_value=0, step=1, key="sell_mb", label_visibility="collapsed")
+        if qty_mb > 0: order_items["MB 20K"] = {"qty": qty_mb, "price": 20000}
         
-        with col_left:
-            st.subheader("🟦 MOBIFONE")
-            for i, item in enumerate(st.session_state.inv_telecom["MB"]):
-                c_lbl, c_stk, c_in = st.columns([3, 1.5, 3])
-                c_lbl.markdown(f'<div class="label-mb">{item["name"]}</div>', unsafe_allow_html=True)
-                c_stk.markdown(f'<div class="stock-val">{item["stock"]}</div>', unsafe_allow_html=True)
-                qty = c_in.number_input("", min_value=0, step=1, key=f"mb_{i}", label_visibility="collapsed")
-                order_items[item["name"]] = {"qty": qty, "price": item["price"], "unit": "Thẻ"}
+    with col_r:
+        st.markdown('<div class="label-vt">VT 20K (Tồn: 85)</div>', unsafe_allow_html=True)
+        qty_vt = st.number_input("Số lượng VT", min_value=0, step=1, key="sell_vt", label_visibility="collapsed")
+        if qty_vt > 0: order_items["VT 20K"] = {"qty": qty_vt, "price": 20000}
 
-        with col_right:
-            st.subheader("🟥 VIETTEL")
-            for i, item in enumerate(st.session_state.inv_telecom["VT"]):
-                c_lbl, c_stk, c_in = st.columns([3, 1.5, 3])
-                c_lbl.markdown(f'<div class="label-vt">{item["name"]}</div>', unsafe_allow_html=True)
-                c_stk.markdown(f'<div class="stock-val">{item["stock"]}</div>', unsafe_allow_html=True)
-                qty = c_in.number_input("", min_value=0, step=1, key=f"vt_{i}", label_visibility="collapsed")
-                order_items[item["name"]] = {"qty": qty, "price": item["price"], "unit": "Thẻ"}
+    # Tóm tắt & Lưu
+    if order_items:
+        st.divider()
+        st.subheader("📋 Tóm tắt đơn hàng")
+        total = sum(v['qty'] * v['price'] for v in order_items.values())
+        st.write(pd.DataFrame([{"Món": k, "SL": v['qty'], "Thành tiền": v['qty']*v['price']} for k, v in order_items.items()]))
+        st.markdown(f"### Tổng cộng: :red[{total:,.0f}đ]")
+        if st.button("LƯU ĐƠN HÀNG"):
+            st.success("Đã lưu đơn hàng!")
 
-    else: # Điện Lạnh
-        st.markdown('<div class="section-header">❄️ PHÂN HỆ DỊCH VỤ & VẬT TƯ ĐIỆN LẠNH</div>', unsafe_allow_html=True)
-        mid = len(st.session_state.inv_cooling) // 2
-        col_l, col_r = st.columns(2)
-        
-        for i, item in enumerate(st.session_state.inv_cooling):
-            target_col = col_l if i < mid else col_r
-            with target_col:
-                c_lbl, c_stk, c_in = st.columns([4, 1.5, 3])
-                c_lbl.markdown(f'<div class="label-dien-lanh">{item["name"]}</div>', unsafe_allow_html=True)
-                c_stk.markdown(f'<div class="stock-val">{item["stock"]}</div>', unsafe_allow_html=True)
-                qty = c_in.number_input("", min_value=0, step=1, key=f"dl_{i}", label_visibility="collapsed")
-                order_items[item["name"]] = {"qty": qty, "price": item["price"], "unit": item["unit"]}
+def page_nhap_hang():
+    st.markdown('<div class="section-header">📦 PHÂN HỆ NHẬP HÀNG (KHO)</div>', unsafe_allow_html=True)
+    with st.form("form_nhap"):
+        c1, c2, c3 = st.columns(3)
+        item = c1.selectbox("Chọn mặt hàng nhập", [x['name'] for x in st.session_state.db_inventory])
+        qty = c2.number_input("Số lượng nhập", min_value=1)
+        price = c3.number_input("Giá vốn nhập", min_value=0)
+        provider = st.text_input("Nhà cung cấp")
+        if st.form_submit_button("XÁC NHẬN NHẬP KHO"):
+            st.info(f"Đã nhập {qty} {item} vào kho.")
 
+def page_thu_chi():
+    st.markdown('<div class="section-header">💰 PHÂN HỆ QUẢN LÝ THU CHI</div>', unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("🔴 Phiếu Chi")
+        st.text_input("Lý do chi (Tiền điện, nước, mặt bằng...)")
+        st.number_input("Số tiền chi", min_value=0, key="chi_val")
+        st.button("Lưu Phiếu Chi", type="primary")
+    with c2:
+        st.subheader("🟢 Phiếu Thu")
+        st.text_input("Lý do thu (Thu nợ, thanh lý...)")
+        st.number_input("Số tiền thu", min_value=0, key="thu_val")
+        st.button("Lưu Phiếu Thu")
+
+def page_nhat_ky():
+    st.markdown('<div class="section-header">📓 NHẬT KÝ CHỨNG TỪ</div>', unsafe_allow_html=True)
+    st.write("Tra cứu toàn bộ lịch sử giao dịch bán hàng, nhập hàng, thu chi.")
+    # Giả lập bảng nhật ký
+    df_log = pd.DataFrame([
+        {"Ngày": "2024-03-20", "Loại": "Bán Hàng", "Nội dung": "Bán thẻ MB cho Khách A", "Số tiền": 500000, "Trạng thái": "Hoàn tất"},
+        {"Ngày": "2024-03-21", "Loại": "Chi Phí", "Nội dung": "Thanh toán tiền điện", "Số tiền": -1200000, "Trạng thái": "Đã chi"},
+    ])
+    st.dataframe(df_log, use_container_width=True)
+
+def page_bao_cao():
+    st.markdown('<div class="section-header">📊 BÁO CÁO TỔNG HỢP & MISA</div>', unsafe_allow_html=True)
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Doanh thu tháng", "150.000.000đ", "+10%")
+    col2.metric("Lợi nhuận gộp", "45.000.000đ", "+5%")
+    col3.metric("Số dư quỹ", "22.500.000đ")
+    
     st.divider()
+    st.subheader("📤 Kết xuất dữ liệu")
+    st.button("XUẤT FILE EXCEL MISA (XML/XLSX)")
 
-    # --- PHẦN 3: TÓM TẮT & XÁC NHẬN ---
-    summary_data = []
-    total_bill = 0
-    for name, info in order_items.items():
-        if info["qty"] > 0:
-            subtotal = info["qty"] * info["price"]
-            total_bill += subtotal
-            summary_data.append({
-                "Mặt hàng": name,
-                "Số lượng": info["qty"],
-                "Đơn vị": info["unit"],
-                "Đơn giá": info["price"],
-                "Thành tiền": subtotal
-            })
+# --- ĐIỀU HƯỚNG CHÍNH (NAVBAR) ---
+def main():
+    # Sidebar làm Menu điều hướng (Navbar dọc)
+    with st.sidebar:
+        st.image("https://via.placeholder.com/150x50?text=THANH+VIEN+ERP", use_container_width=True)
+        st.title("MENU CHÍNH")
+        choice = st.radio(
+            "Chọn chức năng:",
+            ["🛒 Bán Hàng", "📦 Nhập Hàng", "💰 Thu Chi", "📓 Nhật Ký", "📊 Báo Cáo"]
+        )
+        st.write("---")
+        st.caption("Phiên bản v2.0 - Thành Viễn")
 
-    st.subheader("📋 Tóm tắt đơn hàng")
-    if summary_data:
-        # Hiển thị thông tin khách hàng tóm lược
-        if cust_name:
-            st.markdown(f"**Khách hàng:** {cust_name} | **SĐT:** {cust_phone} | **Khu vực:** {cust_area}")
-            st.markdown(f"**Địa chỉ:** {cust_address}")
-        
-        df_summary = pd.DataFrame(summary_data)
-        df_display = df_summary.copy()
-        df_display['Đơn giá'] = df_display['Đơn giá'].map('{:,.0f}đ'.format)
-        df_display['Thành tiền'] = df_display['Thành tiền'].map('{:,.0f}đ'.format)
-        
-        st.dataframe(df_display, use_container_width=True, hide_index=True)
-        
-        c_f1, c_f2 = st.columns([2, 1])
-        c_f1.markdown(f"### TỔNG CỘNG: <span style='color:red'>{total_bill:,.0f} VNĐ</span>", unsafe_allow_html=True)
-        
-        if c_f2.button("XÁC NHẬN & LƯU HÓA ĐƠN", type="primary", use_container_width=True):
-            if not cust_name:
-                st.error("Vui lòng nhập tên khách hàng trước khi lưu!")
-            else:
-                st.success(f"Đã lưu đơn hàng cho khách {cust_name} thành công!")
-                st.balloons()
-    else:
-        st.write("*(Chưa có mặt hàng nào được chọn)*")
+    # Hiển thị trang tương ứng
+    if choice == "🛒 Bán Hàng":
+        page_ban_hang()
+    elif choice == "📦 Nhập Hàng":
+        page_nhap_hang()
+    elif choice == "💰 Thu Chi":
+        page_thu_chi()
+    elif choice == "📓 Nhật Ký":
+        page_nhat_ky()
+    elif choice == "📊 Báo Cáo":
+        page_bao_cao()
 
 if __name__ == "__main__":
     main()
