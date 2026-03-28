@@ -49,14 +49,14 @@ with col_in:
                         p_id_clean = str(p_info['id'])
                         new_stk = int(p_info['stock_quantity'] - qty)
                         
-                        data_to_insert = {
-                            "customer_name": str(cust),
-                            "product_id": p_id_clean,
-                            "quantity": int(qty),
-                            "price": float(prc), 
-                            "total_amount": float(qty * prc),
-                            "order_date": datetime.now().isoformat()
-                        }
+                       data_to_insert = {
+    "customer_name": str(cust),
+    "product_id": p_id_clean,
+    "quantity": int(qty),
+    "price": int(prc),           # Đổi float thành int ở đây
+    "total_amount": int(qty * prc), # Đổi float thành int ở đây
+    "order_date": datetime.now().isoformat()
+}
                         
                         # 2. Ghi đè đơn hàng vào bảng 'orders'
                         res_insert = insert_order(data_to_insert)
