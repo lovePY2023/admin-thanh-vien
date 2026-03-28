@@ -4,14 +4,15 @@ import plotly.express as px
 from datetime import datetime
 import io
 
-# --- CẤU HÌNH GIAO DIỆN RỘNG CHO PC ---
+# --- CẤU HÌNH GIAO DIỆN ---
 st.set_page_config(
-    page_title="Thành Viễn ERP - Dashboard Trung Tâm",
-    page_icon="🖥️",
+    page_title="Thành Viễn ERP - Tất Cả Trong Một",
+    page_icon="❄️",
     layout="wide"
 )
 
-# --- GIẢ LẬP DỮ LIỆU TỪ KHO CHUNG (SUPABASE) ---
+# --- GIẢ LẬP DỮ LIỆU TỪ SUPABASE ---
+# (Sẽ được thay thế bằng kết nối Supabase thực tế khi bạn cung cấp URL/Key)
 if 'inventory' not in st.session_state:
     st.session_state.inventory = pd.DataFrame([
         {"barcode": "893001", "name": "Máy Lạnh Inverter 1HP", "unit": "Bộ", "price": 8500000, "stock": 10},
@@ -19,7 +20,6 @@ if 'inventory' not in st.session_state:
     ])
 
 if 'journal' not in st.session_state:
-    # Dữ liệu này bao gồm cả các dòng quét mã từ Mobile đổ về
     st.session_state.journal = pd.DataFrame([
         {"time": "2024-03-28 08:30", "type": "XUẤT (Mobile)", "item": "Máy Lạnh Inverter 1HP", "qty": 1, "total": 8500000, "user": "NV_Kho_Tuan", "note": "Quét mã kệ tầng 3"},
         {"time": "2024-03-28 09:15", "type": "NHẬP (PC)", "item": "Ống Đồng Phi 6/10", "qty": 50, "total": 0, "user": "KeToan_Lan", "note": "Nhập kho theo lô"},
@@ -27,9 +27,40 @@ if 'journal' not in st.session_state:
 
 # --- GIAO DIỆN CHÍNH ---
 def main():
-    st.sidebar.markdown("### 🖥️ THÀNH VIỄN ERP")
-    st.sidebar.info("Trạm điều hành dành cho PC/Laptop")
+    # Sidebar: Chế độ làm việc
+    st.sidebar.markdown("### 🛠️ THÀNH VIỄN ERP")
+    app_mode = st.sidebar.selectbox("CHẾ ĐỘ LÀM VIỆC", ["📱 QUÉT MÃ NHANH (Mobile)", "🖥️ QUẢN LÝ TỔNG THỂ (PC)"])
     
+    if app_mode == "📱 QUÉT MÃ NHANH (Mobile)":
+        render_mobile_mode()
+    else:
+        render_pc_mode()
+
+# --- PHÂN HỆ MOBILE (Tích hợp trong cùng App) ---
+def render_mobile_mode():
+    st.header("📱 Chế độ Di động (Leo kệ / Quét mã)")
+    st.info("Dùng camera điện thoại để quét mã vạch và cập nhật kho tức thì.")
+    
+    # Giả lập quét mã (Trên Streamlit có thể dùng widget Camera Input)
+    img_file = st.camera_input("Quét mã vạch sản phẩm")
+    
+    if img_file:
+        st.warning("Hệ thống đang phân tích ảnh... (Kết nối AI để đọc barcode)")
+        # Logic đọc mã vạch sẽ nằm ở đây
+        st.success("Đã tìm thấy: Máy Lạnh Inverter 1HP (Tồn: 10)")
+        
+    c1, c2 = st.columns(2)
+    with c1:
+        qty = st.number_input("Số lượng", min_value=1, value=1)
+    with c2:
+        action = st.radio("Thao tác", ["NHẬP KHO", "XUẤT KHO"])
+        
+    if st.button("XÁC NHẬN GỬI DỮ LIỆU", use_container_width=True, type="primary"):
+        st.balloons()
+        st.success(f"Đã {action} {qty} sản phẩm. Dữ liệu đã đẩy lên Supabase!")
+
+# --- PHÂN HỆ PC (Quản lý chi tiết) ---
+def render_pc_mode():
     menu = st.sidebar.radio("PHÂN HỆ QUẢN LÝ", [
         "📊 Dashboard Tổng Quan",
         "🛒 Bán Hàng & Đơn Hàng",
@@ -47,98 +78,50 @@ def main():
     elif menu == "📦 Quản Lý Kho & Giá":
         render_inventory_management()
 
-# --- 1. DASHBOARD TỔNG QUAN ---
 def render_dashboard():
-    st.title("📊 Trung Tâm Giám Sát Real-time")
-    
-    # Chỉ số nhanh (KPIs)
+    st.title("📊 Trung Tâm Giám Sát")
     c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.metric("Tổng doanh thu", "125,000,000đ", "+8%")
-    with c2:
-        st.metric("Giao dịch Mobile", "15 lượt", "Sôi nổi")
-    with c3:
-        st.metric("Sản phẩm dưới hạn mức", "2 mã", "-1", delta_color="inverse")
-    with c4:
-        st.metric("Trạng thái Sync", "Đang kết nối", "Ổn định")
+    c1.metric("Tổng doanh thu", "125,000,000đ", "+8%")
+    c2.metric("Giao dịch Mobile", f"{len(st.session_state.journal)} lượt", "Sôi nổi")
+    c3.metric("Sản phẩm sắp hết", "2 mã", "-1", delta_color="inverse")
+    c4.metric("Trạng thái Sync", "Supabase Online", "0.2s")
 
     st.divider()
-    
     col_chart, col_logs = st.columns([2, 1])
     with col_chart:
-        st.subheader("Biến động xuất nhập kho")
-        # Giả lập biểu đồ trực quan
-        df_chart = pd.DataFrame({
-            'Ngày': pd.date_range(start='2024-03-20', periods=7),
-            'Nhập': [10, 20, 15, 30, 25, 40, 35],
-            'Xuất': [5, 15, 20, 25, 20, 30, 45]
-        })
+        st.subheader("Biến động xuất nhập")
+        df_chart = pd.DataFrame({'Ngày': pd.date_range(start='2024-03-20', periods=7), 'Nhập': [10, 20, 15, 30, 25, 40, 35], 'Xuất': [5, 15, 20, 25, 20, 30, 45]})
         st.line_chart(df_chart.set_index('Ngày'))
 
     with col_logs:
         st.subheader("Hoạt động mới nhất")
         for index, row in st.session_state.journal.iloc[::-1].head(5).iterrows():
             st.write(f"🕒 **{row['time'].split(' ')[1]}** | {row['user']}")
-            st.caption(f"{row['type']}: {row['item']} ({row['qty']})")
+            st.caption(f"{row['type']}: {row['item']}")
             st.divider()
 
-# --- 2. NHẬP ĐƠN HÀNG CHI TIẾT ---
 def render_order_entry():
-    st.title("🛒 Lập Đơn Bán Hàng (PC Mode)")
-    st.info("Sử dụng khi có đơn hàng nhiều món hoặc cần làm hóa đơn chuyên nghiệp.")
-    
+    st.title("🛒 Lập Đơn Bán Hàng")
     with st.container(border=True):
         c1, c2 = st.columns(2)
-        with c1:
-            customer = st.selectbox("Khách hàng/Đại lý", ["Công ty A", "Khách hàng B", "Đại lý C"])
-        with c2:
-            order_date = st.date_input("Ngày xuất hóa đơn")
+        customer = c1.selectbox("Khách hàng", ["Công ty A", "Khách hàng B"])
+        date = c2.date_input("Ngày lập")
         
-        # Bảng nhập liệu kiểu Excel
-        items_df = pd.DataFrame([
-            {"Mặt hàng": "Máy Lạnh Inverter 1HP", "SL": 1, "Đơn giá": 8500000},
-            {"Mặt hàng": "Ống Đồng Phi 6/10", "SL": 10, "Đơn giá": 150000}
-        ])
-        
-        st.write("Chi tiết đơn hàng:")
+        items_df = pd.DataFrame([{"Mặt hàng": "Máy Lạnh Inverter 1HP", "SL": 1, "Đơn giá": 8500000}])
         edited_df = st.data_editor(items_df, num_rows="dynamic", use_container_width=True)
         
         total = (edited_df['SL'] * edited_df['Đơn giá']).sum()
-        st.subheader(f"Tổng giá trị đơn: :blue[{total:,.0f} VNĐ]")
-        
-        if st.button("XUẤT HÓA ĐƠN & TRỪ KHO", type="primary"):
-            st.success("Đã ghi nhận giao dịch và đồng bộ dữ liệu!")
+        st.subheader(f"Tổng: :blue[{total:,.0f} VNĐ]")
+        if st.button("XUẤT HÓA ĐƠN", type="primary"):
+            st.success("Đã ghi sổ thành công!")
 
-# --- 3. NHẬT KÝ HỢP NHẤT ---
 def render_combined_journal():
-    st.title("📒 Sổ Nhật Ký Giao Dịch Hợp Nhất")
-    st.markdown("""
-    <style> .stDataFrame { border: 1px solid #ddd; border-radius: 10px; } </style>
-    """, unsafe_allow_html=True)
-    
-    st.write("Nơi kiểm soát mọi hành động từ App Điện Thoại và Máy Tính.")
-    
-    # Bộ lọc chuyên sâu cho PC
-    f1, f2, f3 = st.columns([1, 1, 2])
-    with f1:
-        st.selectbox("Lọc theo nguồn", ["Tất cả", "Mobile App", "PC Admin"])
-    with f2:
-        st.selectbox("Lọc theo loại", ["Tất cả", "NHẬP", "XUẤT"])
-    with f3:
-        st.text_input("Tìm kiếm theo tên sản phẩm hoặc ghi chú...")
-
+    st.title("📒 Nhật Ký Hợp Nhất")
     st.dataframe(st.session_state.journal, use_container_width=True, hide_index=True)
 
-# --- 4. QUẢN LÝ KHO ---
 def render_inventory_management():
-    st.title("📦 Quản Lý Danh Mục & Kho Hàng")
-    
-    tab1, tab2 = st.tabs(["Sửa giá & Tồn kho", "Thiết lập vị trí kệ"])
-    
-    with tab1:
-        st.data_editor(st.session_state.inventory, use_container_width=True)
-        if st.button("Cập nhật bảng giá mới"):
-            st.toast("Đã đồng bộ giá mới lên điện thoại của nhân viên!")
+    st.title("📦 Quản Lý Kho")
+    st.data_editor(st.session_state.inventory, use_container_width=True)
 
 if __name__ == "__main__":
     main()
