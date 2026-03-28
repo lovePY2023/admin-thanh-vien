@@ -43,7 +43,6 @@ st.markdown("""
 
 # --- KHỞI TẠO DỮ LIỆU ---
 def init_data():
-    # Dữ liệu Viễn Thông
     if 'inv_telecom' not in st.session_state:
         st.session_state.inv_telecom = {
             "MB": [
@@ -62,7 +61,6 @@ def init_data():
             ]
         }
     
-    # Dữ liệu Điện Lạnh
     if 'inv_cooling' not in st.session_state:
         st.session_state.inv_cooling = [
             {"name": "Vệ sinh Máy lạnh (Bộ)", "stock": "∞", "price": 150000, "unit": "Bộ"},
@@ -85,7 +83,7 @@ def main():
         date = c2.date_input("Ngày chứng từ", datetime.now())
         mode = c3.radio("PHÂN HỆ BÁN HÀNG", ["Viễn Thông", "Điện Lạnh"], horizontal=True)
 
-    order_items = {} # Lưu số lượng người dùng nhập
+    order_items = {} 
 
     if mode == "Viễn Thông":
         st.markdown('<div class="section-header">📶 PHÂN HỆ VIỄN THÔNG (THẺ CÀO)</div>', unsafe_allow_html=True)
@@ -97,10 +95,8 @@ def main():
                 c_lbl, c_stk, c_in = st.columns([3, 1.5, 3])
                 c_lbl.markdown(f'<div class="label-mb">{item["name"]}</div>', unsafe_allow_html=True)
                 c_stk.markdown(f'<div class="stock-val">{item["stock"]}</div>', unsafe_allow_html=True)
-                order_items[item["name"]] = {
-                    "qty": c_in.number_input("", min_value=0, step=1, key=f"mb_{i}", label_visibility="collapsed"),
-                    "price": item["price"]
-                }
+                qty = c_in.number_input("", min_value=0, step=1, key=f"mb_{i}", label_visibility="collapsed")
+                order_items[item["name"]] = {"qty": qty, "price": item["price"], "unit": "Thẻ"}
 
         with col_right:
             st.subheader("🟥 VIETTEL")
@@ -108,14 +104,11 @@ def main():
                 c_lbl, c_stk, c_in = st.columns([3, 1.5, 3])
                 c_lbl.markdown(f'<div class="label-vt">{item["name"]}</div>', unsafe_allow_html=True)
                 c_stk.markdown(f'<div class="stock-val">{item["stock"]}</div>', unsafe_allow_html=True)
-                order_items[item["name"]] = {
-                    "qty": c_in.number_input("", min_value=0, step=1, key=f"vt_{i}", label_visibility="collapsed"),
-                    "price": item["price"]
-                }
+                qty = c_in.number_input("", min_value=0, step=1, key=f"vt_{i}", label_visibility="collapsed")
+                order_items[item["name"]] = {"qty": qty, "price": item["price"], "unit": "Thẻ"}
 
     else: # Điện Lạnh
         st.markdown('<div class="section-header">❄️ PHÂN HỆ DỊCH VỤ & VẬT TƯ ĐIỆN LẠNH</div>', unsafe_allow_html=True)
-        # Chia làm 2 cột cho gọn
         mid = len(st.session_state.inv_cooling) // 2
         col_l, col_r = st.columns(2)
         
@@ -125,33 +118,44 @@ def main():
                 c_lbl, c_stk, c_in = st.columns([4, 1.5, 3])
                 c_lbl.markdown(f'<div class="label-dien-lanh">{item["name"]}</div>', unsafe_allow_html=True)
                 c_stk.markdown(f'<div class="stock-val">{item["stock"]}</div>', unsafe_allow_html=True)
-                order_items[item["name"]] = {
-                    "qty": c_in.number_input("", min_value=0, step=1, key=f"dl_{i}", label_visibility="collapsed"),
-                    "price": item["price"]
-                }
+                qty = c_in.number_input("", min_value=0, step=1, key=f"dl_{i}", label_visibility="collapsed")
+                order_items[item["name"]] = {"qty": qty, "price": item["price"], "unit": item["unit"]}
 
     st.divider()
 
-    # TÍNH TOÁN VÀ HIỂN THỊ TỔNG
+    # XỬ LÝ DỮ LIỆU TÓM TẮT ĐƠN HÀNG
+    summary_data = []
     total_bill = 0
-    details = []
     for name, info in order_items.items():
         if info["qty"] > 0:
             subtotal = info["qty"] * info["price"]
             total_bill += subtotal
-            details.append(f"{name} (x{info['qty']})")
+            summary_data.append({
+                "Mặt hàng": name,
+                "Số lượng": info["qty"],
+                "Đơn vị": info["unit"],
+                "Đơn giá": info["price"],
+                "Thành tiền": subtotal
+            })
 
-    if details:
-        st.info(f"🛒 **Chi tiết:** {', '.join(details)}")
-
-    c_f1, c_f2 = st.columns([2, 1])
-    c_f1.markdown(f"### TỔNG THANH TOÁN: <span style='color:red'>{total_bill:,.0f} VNĐ</span>", unsafe_allow_html=True)
-    if c_f2.button("XÁC NHẬN & LƯU HÓA ĐƠN", type="primary", use_container_width=True):
-        if total_bill > 0:
+    # HIỂN THỊ FRAME TÓM TẮT
+    st.subheader("📋 Tóm tắt đơn hàng")
+    if summary_data:
+        df_summary = pd.DataFrame(summary_data)
+        # Định dạng tiền tệ cho bảng
+        df_display = df_summary.copy()
+        df_display['Đơn giá'] = df_display['Đơn giá'].map('{:,.0f}đ'.format)
+        df_display['Thành tiền'] = df_display['Thành tiền'].map('{:,.0f}đ'.format)
+        
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
+        
+        c_f1, c_f2 = st.columns([2, 1])
+        c_f1.markdown(f"### TỔNG CỘNG: <span style='color:red'>{total_bill:,.0f} VNĐ</span>", unsafe_allow_html=True)
+        if c_f2.button("XÁC NHẬN & LƯU HÓA ĐƠN", type="primary", use_container_width=True):
             st.success("Đã ghi nhận giao dịch thành công!")
             st.balloons()
-        else:
-            st.warning("Vui lòng nhập số lượng.")
+    else:
+        st.write("*(Chưa có mặt hàng nào được chọn)*")
 
 if __name__ == "__main__":
     main()
