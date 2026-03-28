@@ -1,171 +1,203 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 from datetime import datetime
+import streamlit.components.v1 as components
+from supabase_db import supabase, load_products, insert_order
 
-# --- CẤU HÌNH TRANG ---
-st.set_page_config(
-    page_title="Thành Viễn ERP - Hệ Thống Tổng Hợp",
-    page_icon="🏢",
-    layout="wide"
-)
+# --- CẤU HÌNH GIAO DIỆN ---
+st.set_page_config(page_title="Thành Viễn ERP", layout="wide", page_icon="❄️")
 
-# --- CSS TÙY CHỈNH (Giữ lại phong cách Excel trực quan) ---
+# --- CSS TÙY CHỈNH ---
 st.markdown("""
-<style>
-    /* Style cho các label nhập nhanh */
-    .label-mb { background-color: #c6d9f1; padding: 10px; border: 1px solid #95b3d7; font-weight: bold; border-radius: 4px 0 0 4px; height: 45px; display: flex; align-items: center; }
-    .label-vt { background-color: #f2dcda; padding: 10px; border: 1px solid #e6b8b7; font-weight: bold; border-radius: 4px 0 0 4px; height: 45px; display: flex; align-items: center; }
-    .label-dl { background-color: #e2efda; padding: 10px; border: 1px solid #c6e0b4; font-weight: bold; border-radius: 4px 0 0 4px; height: 45px; display: flex; align-items: center; }
-    .stock-val { background-color: #ffffff; padding: 10px; border: 1px solid #ccc; text-align: center; font-family: monospace; height: 45px; display: flex; align-items: center; justify-content: center; }
-    
-    /* Căn chỉnh lại input number để khớp với label */
-    div[data-baseweb="input"] { height: 45px !important; }
-    
-    /* Section Headers */
-    .section-header {
-        padding: 10px; background: #333; color: white; border-radius: 5px; margin-bottom: 15px; font-weight: bold;
+    <style>
+    .main-header { font-size: 26px; font-weight: bold; color: #1E88E5; }
+    .stMetric { background-color: #f0f2f6; padding: 10px; border-radius: 10px; border: 1px solid #e9ecef; }
+    .stButton>button { border-radius: 5px; font-weight: bold; height: 3em; }
+    #reader { 
+        border: 2px solid #1E88E5 !important; 
+        border-radius: 10px; 
+        background: black; 
+        margin-bottom: 10px;
     }
-</style>
+    .scan-status {
+        padding: 10px;
+        border-radius: 5px;
+        background-color: #e3f2fd;
+        color: #0d47a1;
+        margin-bottom: 10px;
+        font-weight: bold;
+        text-align: center;
+    }
+    </style>
 """, unsafe_allow_html=True)
 
-# --- KHỞI TẠO DỮ LIỆU ---
-if 'db_inventory' not in st.session_state:
-    st.session_state.db_inventory = {
-        "MB": [
-            {"name": "MB 20K", "stock": 110, "price": 20000},
-            {"name": "MB 50K", "stock": 104, "price": 50000},
-            {"name": "MB 100K", "stock": 113, "price": 100000},
-        ],
-        "VT": [
-            {"name": "VT 20K", "stock": 90, "price": 20000},
-            {"name": "VT 50K", "stock": 97, "price": 50000},
-            {"name": "VT 100K", "stock": 103, "price": 100000},
-        ],
-        "DL": [
-            {"name": "Vệ sinh Máy lạnh", "stock": "∞", "price": 150000, "unit": "Bộ"},
-            {"name": "Ống đồng Phi 6/10", "stock": 150, "price": 160000, "unit": "Mét"},
-        ]
-    }
+# --- KHỞI TẠO TRẠNG THÁI ---
+if 'last_scanned_code' not in st.session_state:
+    st.session_state.last_scanned_code = ""
 
-# --- CÁC PHÂN HỆ CHỨC NĂNG ---
+# --- HÀM TRỢ GIÚP ---
+def get_product_data():
+    """Lấy dữ liệu sản phẩm từ Supabase và chuyển thành DataFrame"""
+    res = load_products()
+    if res and res.data:
+        return pd.DataFrame(res.data)
+    return pd.DataFrame(columns=["id", "barcode", "name", "unit", "stock_quantity", "sale_price", "category"])
 
-def page_ban_hang():
-    st.markdown('<div class="section-header">🛒 PHÂN HỆ BÁN HÀNG (QUICK POS)</div>', unsafe_allow_html=True)
+def find_product_by_barcode(df, code):
+    if code == "" or df.empty: return None
+    clean_code = str(code).strip()
+    result = df[df['barcode'] == clean_code]
+    return result.iloc[0] if not result.empty else None
+
+# --- COMPONENT QUÉT MÃ ---
+def auto_scanner_component():
+    scanner_html = f"""
+    <div id="reader" style="width: 100%;"></div>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script>
+        const html5QrCode = new Html5Qrcode("reader");
+        const qrCodeSuccessCallback = (decodedText, decodedResult) => {{
+            const audio = new Audio('https://www.soundjay.com/button/beep-07.mp3');
+            audio.play();
+            const url = new URL(window.parent.location.href);
+            url.searchParams.set('barcode', decodedText);
+            url.searchParams.set('t', Date.now());
+            window.parent.location.href = url.href;
+            html5QrCode.stop().catch(err => console.error(err));
+        }};
+        const config = {{ fps: 20, qrbox: {{ width: 250, height: 250 }}, aspectRatio: 1.0 }};
+        html5QrCode.start({{ facingMode: "environment" }}, config, qrCodeSuccessCallback);
+    </script>
+    """
+    return components.html(scanner_html, height=350)
+
+# Xử lý tham số từ URL khi quét mã xong
+query_params = st.query_params
+if "barcode" in query_params:
+    st.session_state.last_scanned_code = query_params["barcode"]
+    st.query_params.clear()
+
+# --- MENU CHÍNH ---
+with st.sidebar:
+    st.title("❄️ Thành Viễn ERP")
+    menu = st.sidebar.radio("Chức năng", ["🛒 Bán Hàng", "📦 Kho Hàng", "📊 Báo Cáo"])
+
+# Lấy dữ liệu mới nhất từ Supabase
+df_products = get_product_data()
+
+# --- 1. PHÂN HỆ BÁN HÀNG ---
+if menu == "🛒 Bán Hàng":
+    st.markdown('<p class="main-header">🛒 Hệ Thống Bán Hàng & Dịch Vụ</p>', unsafe_allow_html=True)
     
-    # 1. Thông tin khách hàng
-    with st.container(border=True):
-        c1, c2, c3 = st.columns([2, 1, 1])
-        cust_name = c1.text_input("Tên khách hàng / Đơn vị", placeholder="Nhập tên khách hàng...")
-        cust_phone = c2.text_input("Số điện thoại", placeholder="090x...")
-        cust_area = c3.selectbox("Khu vực", ["Quận 1", "Quận 3", "Bình Thạnh", "Gò Vấp", "Khác"])
+    col_form, col_view = st.columns([1, 1.2])
+    
+    with col_form:
+        with st.container(border=True):
+            st.subheader("Quét hoặc Chọn Sản Phẩm")
+            
+            if st.toggle("📷 Mở Camera Quét Mã"):
+                auto_scanner_component()
+            
+            current_code = st.text_input("Mã vạch nhận diện:", value=st.session_state.last_scanned_code)
+            product = find_product_by_barcode(df_products, current_code)
+            
+            if product is not None:
+                st.markdown(f'<div class="scan-status">✅ {product["name"]} - Tồn: {product["stock_quantity"]}</div>', unsafe_allow_html=True)
+
+            with st.form("sale_form", clear_on_submit=True):
+                cust = st.text_input("Tên khách hàng", "Khách lẻ")
+                
+                # Danh sách để chọn tay nếu không quét
+                product_list = df_products['name'].tolist() if not df_products.empty else []
+                default_idx = product_list.index(product['name']) if product is not None else 0
+                
+                selected_name = st.selectbox("Sản phẩm", product_list, index=default_idx)
+                
+                # Lấy thông tin chi tiết item đang chọn trong form
+                item_info = df_products[df_products['name'] == selected_name].iloc[0]
+                
+                c1, c2 = st.columns(2)
+                qty = c1.number_input("Số lượng", min_value=1, value=1)
+                price = c2.number_input("Giá bán (VNĐ)", value=int(item_info['sale_price']), step=1000)
+                
+                if st.form_submit_button("XÁC NHẬN XUẤT ĐƠN", use_container_width=True, type="primary"):
+                    if item_info['category'] != "Dịch Vụ" and item_info['stock_quantity'] < qty:
+                        st.error("Kho không đủ hàng!")
+                    else:
+                        # 1. Lưu đơn hàng vào Supabase
+                        order_payload = {
+                            "customer_name": cust,
+                            "product_id": str(item_info['id']),
+                            "quantity": qty,
+                            "price": price,
+                            "total_amount": qty * price,
+                            "order_date": datetime.now().isoformat()
+                        }
+                        insert_order(order_payload)
+                        
+                        # 2. Cập nhật tồn kho (Nếu không phải dịch vụ)
+                        if item_info['category'] != "Dịch Vụ":
+                            new_stock = item_info['stock_quantity'] - qty
+                            supabase.table("products").update({"stock_quantity": new_stock}).eq("id", item_info['id']).execute()
+                        
+                        st.session_state.last_scanned_code = ""
+                        st.success("Đã ghi nhận giao dịch!")
+                        st.rerun()
+
+    with col_view:
+        st.subheader("Đơn hàng gần đây")
+        orders_res = supabase.table("orders").select("*, products(name)").order("order_date", desc=True).limit(10).execute()
+        if orders_res.data:
+            view_df = pd.DataFrame(orders_res.data)
+            # Làm đẹp tên sản phẩm từ quan hệ join
+            view_df['Sản phẩm'] = view_df['products'].apply(lambda x: x['name'] if x else "N/A")
+            st.dataframe(view_df[['order_date', 'customer_name', 'Sản phẩm', 'quantity', 'total_amount']], use_container_width=True)
+
+# --- 2. PHÂN HỆ KHO HÀNG ---
+elif menu == "📦 Kho Hàng":
+    st.markdown('<p class="main-header">📦 Quản Lý Kho & Nhập Hàng</p>', unsafe_allow_html=True)
+    
+    t1, t2 = st.tabs(["📋 Danh Mục Tồn Kho", "📥 Nhập Kho Nhanh"])
+    
+    with t1:
+        st.dataframe(df_products, use_container_width=True, hide_index=True)
         
-        c4, c5, c6 = st.columns([2, 1, 1])
-        cust_addr = c4.text_input("Địa chỉ chi tiết")
-        order_date = c5.date_input("Ngày chứng từ", datetime.now())
-        sale_mode = c6.radio("CHẾ ĐỘ NHẬP", ["Viễn Thông", "Điện Lạnh"], horizontal=True)
-
-    st.write("")
-    order_items = {}
-
-    # 2. Lưới nhập liệu (Grid)
-    if sale_mode == "Viễn Thông":
-        col_l, col_r = st.columns(2)
-        with col_l:
-            st.subheader("🟦 MOBIFONE")
-            for i, item in enumerate(st.session_state.db_inventory["MB"]):
-                c_lbl, c_stk, c_in = st.columns([3, 1.2, 2.5])
-                c_lbl.markdown(f'<div class="label-mb">{item["name"]}</div>', unsafe_allow_html=True)
-                c_stk.markdown(f'<div class="stock-val">{item["stock"]}</div>', unsafe_allow_html=True)
-                qty = c_in.number_input("", min_value=0, step=1, key=f"mb_{i}", label_visibility="collapsed")
-                if qty > 0: order_items[item["name"]] = {"qty": qty, "price": item["price"], "unit": "Thẻ"}
+    with t2:
+        st.write("Quét mã sản phẩm để nhập hàng vào kho")
+        if st.toggle("Bật Camera Nhập Kho"):
+            auto_scanner_component()
         
-        with col_r:
-            st.subheader("🟥 VIETTEL")
-            for i, item in enumerate(st.session_state.db_inventory["VT"]):
-                c_lbl, c_stk, c_in = st.columns([3, 1.2, 2.5])
-                c_lbl.markdown(f'<div class="label-vt">{item["name"]}</div>', unsafe_allow_html=True)
-                c_stk.markdown(f'<div class="stock-val">{item["stock"]}</div>', unsafe_allow_html=True)
-                qty = c_in.number_input("", min_value=0, step=1, key=f"vt_{i}", label_visibility="collapsed")
-                if qty > 0: order_items[item["name"]] = {"qty": qty, "price": item["price"], "unit": "Thẻ"}
-
-    else:
-        st.subheader("❄️ DỊCH VỤ & VẬT TƯ ĐIỆN LẠNH")
-        for i, item in enumerate(st.session_state.db_inventory["DL"]):
-            c_lbl, c_stk, c_in = st.columns([4, 1.2, 3])
-            c_lbl.markdown(f'<div class="label-dl">{item["name"]}</div>', unsafe_allow_html=True)
-            c_stk.markdown(f'<div class="stock-val">{item["stock"]}</div>', unsafe_allow_html=True)
-            qty = c_in.number_input("", min_value=0, step=1, key=f"dl_{i}", label_visibility="collapsed")
-            if qty > 0: order_items[item["name"]] = {"qty": qty, "price": item["price"], "unit": item.get("unit", "Cái")}
-
-    # 3. Tóm tắt đơn hàng (Frame Data)
-    if order_items:
-        st.divider()
-        st.subheader("📋 Tóm tắt đơn hàng")
-        if cust_name:
-            st.info(f"Khách hàng: **{cust_name}** - SĐT: **{cust_phone}**")
+        in_code = st.text_input("Mã vạch nhập:", value=st.session_state.last_scanned_code, key="in_code")
+        p_in = find_product_by_barcode(df_products, in_code)
         
-        summary_list = []
-        total_all = 0
-        for name, info in order_items.items():
-            subtotal = info['qty'] * info['price']
-            total_all += subtotal
-            summary_list.append({
-                "Mặt hàng": name,
-                "Số lượng": info['qty'],
-                "Đơn giá": f"{info['price']:,}đ",
-                "Thành tiền": f"{subtotal:,}đ"
-            })
+        if p_in is not None:
+            st.success(f"Nhập hàng cho: {p_in['name']}")
+            with st.form("import_form"):
+                add_qty = st.number_input("Số lượng nhập thêm", min_value=1)
+                if st.form_submit_button("Xác nhận nhập"):
+                    new_qty = p_in['stock_quantity'] + add_qty
+                    supabase.table("products").update({"stock_quantity": new_qty}).eq("id", p_in['id']).execute()
+                    st.session_state.last_scanned_code = ""
+                    st.success("Đã cập nhật tồn kho!")
+                    st.rerun()
+
+# --- 3. PHÂN HỆ BÁO CÁO ---
+elif menu == "📊 Báo Cáo":
+    st.markdown('<p class="main-header">📊 Báo Cáo Kinh Doanh</p>', unsafe_allow_html=True)
+    
+    all_orders = supabase.table("orders").select("*").execute()
+    if all_orders.data:
+        df_all = pd.DataFrame(all_orders.data)
         
-        st.table(pd.DataFrame(summary_list))
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Doanh Thu Tổng", f"{df_all['total_amount'].sum():,.0f}đ")
+        c2.metric("Số Đơn Hàng", len(df_all))
+        c3.metric("Số Lượng Bán", int(df_all['quantity'].sum()))
         
-        col_btn1, col_btn2 = st.columns([2, 1])
-        col_btn1.markdown(f"### TỔNG CỘNG: :red[{total_all:,.0f} VNĐ]")
-        if col_btn2.button("XÁC NHẬN & XUẤT HÓA ĐƠN", type="primary", use_container_width=True):
-            st.success("Đã ghi nhận đơn hàng thành công!")
-            st.balloons()
-
-def page_nhap_hang():
-    st.markdown('<div class="section-header">📦 NHẬP HÀNG VÀO KHO</div>', unsafe_allow_html=True)
-    st.info("Chức năng cập nhật tồn kho từ nhà cung cấp.")
-
-def page_thu_chi():
-    st.markdown('<div class="section-header">💰 QUẢN LÝ THU CHI NỘI BỘ</div>', unsafe_allow_html=True)
-    tab1, tab2 = st.tabs(["🔴 Phiếu Chi", "🟢 Phiếu Thu"])
-    with tab1:
-        st.number_input("Số tiền chi", min_value=0)
-        st.text_area("Lý do chi")
-        st.button("Lưu phiếu chi")
-
-def page_nhat_ky():
-    st.markdown('<div class="section-header">📓 NHẬT KÝ GIAO DỊCH</div>', unsafe_allow_html=True)
-    st.write("Lịch sử bán hàng và biến động kho.")
-
-def page_bao_cao():
-    st.markdown('<div class="section-header">📊 BÁO CÁO DOANH THU & KẾ TOÁN</div>', unsafe_allow_html=True)
-    st.button("Xuất Excel MISA")
-
-# --- ĐIỀU HƯỚNG NAVBAR SIDEBAR ---
-def main():
-    with st.sidebar:
-        st.title("❄️ THÀNH VIỄN")
-        choice = st.radio(
-            "DANH MỤC CHÍNH",
-            ["🛒 Bán Hàng", "📦 Nhập Hàng", "💰 Thu Chi", "📓 Nhật Ký", "📊 Báo Cáo"],
-            index=0
-        )
-        st.divider()
-        st.caption("User: Admin | POS-01")
-
-    if choice == "🛒 Bán Hàng":
-        page_ban_hang()
-    elif choice == "📦 Nhập Hàng":
-        page_nhap_hang()
-    elif choice == "💰 Thu Chi":
-        page_thu_chi()
-    elif choice == "📓 Nhật Ký":
-        page_nhat_ky()
-    elif choice == "📊 Báo Cáo":
-        page_bao_cao()
-
-if __name__ == "__main__":
-    main()
+        # Biểu đồ
+        st.subheader("Diễn biến doanh thu")
+        df_all['order_date'] = pd.to_datetime(df_all['order_date'])
+        daily_rev = df_all.groupby(df_all['order_date'].dt.date)['total_amount'].sum().reset_index()
+        fig = px.line(daily_rev, x='order_date', y='total_amount', title="Doanh thu theo ngày")
+        st.plotly_chart(fig, use_container_width=True)
