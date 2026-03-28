@@ -13,8 +13,7 @@ st.markdown("""
     .main-header { font-size: 26px; font-weight: bold; color: #1E88E5; }
     .stMetric { background-color: #f0f2f6; padding: 10px; border-radius: 10px; }
     .stButton>button { border-radius: 5px; font-weight: bold; height: 3em; }
-    /* Làm nổi bật vùng quét */
-    #reader { border: 2px solid #1E88E5 !important; border-radius: 10px; }
+    #reader { border: 2px solid #1E88E5 !important; border-radius: 10px; background: white; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -29,47 +28,48 @@ if 'products' not in st.session_state:
 if 'orders' not in st.session_state:
     st.session_state.orders = pd.DataFrame(columns=["Thời Gian", "Khách Hàng", "Sản Phẩm", "Số Lượng", "Đơn Giá", "Tổng Tiền", "Loại"])
 
-if 'journal_logs' not in st.session_state:
-    st.session_state.journal_logs = pd.DataFrame(columns=["Thời Gian", "Loại Giao Dịch", "Chi Tiết", "Giá Trị", "Người Thực Hiện"])
+# State để lưu trữ mã vừa quét được
+if 'last_scanned_code' not in st.session_state:
+    st.session_state.last_scanned_code = ""
 
 # --- HÀM TRỢ GIÚP ---
-def log_event(event_type, detail, value, user="Admin"):
-    new_log = {"Thời Gian": datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "Loại Giao Dịch": event_type, "Chi Tiết": detail, "Giá Trị": value, "Người Thực Hiện": user}
-    st.session_state.journal_logs = pd.concat([pd.DataFrame([new_log]), st.session_state.journal_logs], ignore_index=True)
-
 def find_product_by_barcode(code):
     if not code: return None
-    # Chuyển về string và strip khoảng trắng để so khớp chính xác
     clean_code = str(code).strip()
     result = st.session_state.products[st.session_state.products['barcode'] == clean_code]
     return result.iloc[0] if not result.empty else None
 
-# --- TRÌNH QUÉT MÃ TỰ ĐỘNG (JAVASCRIPT) ---
+# --- TRÌNH QUÉT MÃ TỰ ĐỘNG (FIXED DATA TRANSFER) ---
 def auto_scanner_component():
-    """Trình quét mã tự động bật camera sau, quét xong tự điền mã"""
-    scanner_html = """
+    """Trình quét mã tự động với cơ chế truyền dữ liệu qua LocalStorage/URL"""
+    scanner_html = f"""
     <div id="reader" style="width: 100%;"></div>
-    <div id="result" style="display:none;"></div>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script>
         const html5QrCode = new Html5Qrcode("reader");
-        const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+        const config = {{ fps: 15, qrbox: {{ width: 250, height: 250 }} }};
 
-        // Ưu tiên camera sau (environment)
-        html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => {
-            // Khi quét thành công:
-            // 1. Gửi kết quả về Streamlit
-            window.parent.postMessage({
-                type: 'streamlit:setComponentValue',
-                value: decodedText
-            }, '*');
-            // 2. Dừng camera
+        html5QrCode.start({{ facingMode: "environment" }}, config, (decodedText) => {{
+            // Cách 1: Gửi qua query param để Streamlit nhận diện qua st.query_params
+            const url = new URL(window.parent.location.href);
+            url.searchParams.set('barcode', decodedText);
+            window.parent.location.href = url.href;
+            
             html5QrCode.stop();
-            document.getElementById('reader').style.display = 'none';
-        });
+        }}).catch((err) => {{
+            console.error("Camera error:", err);
+        }});
     </script>
     """
-    return components.html(scanner_html, height=300)
+    return components.html(scanner_html, height=320)
+
+# --- XỬ LÝ MÃ QUÉT TỪ URL ---
+# Streamlit sẽ tự rerun khi URL thay đổi
+query_params = st.query_params
+if "barcode" in query_params:
+    st.session_state.last_scanned_code = query_params["barcode"]
+    # Xóa param để không bị lặp lại khi load trang
+    st.query_params.clear()
 
 # --- MENU CHÍNH ---
 with st.sidebar:
@@ -86,27 +86,20 @@ if menu == "🛒 Bán Hàng & Dịch Vụ":
         with st.container(border=True):
             st.subheader("Tạo Đơn Hàng")
             
-            # NÚT QUÉT DUY NHẤT
-            btn_scan = st.toggle("📷 BẬT MÁY ẢNH QUÉT MÃ", help="Bật để tự động quét mã vạch")
+            # Nút bật quét
+            btn_scan = st.toggle("📷 BẬT MÁY ẢNH QUÉT MÃ", help="Tự động nhận diện QR/Barcode")
             
-            scanned_code = ""
             if btn_scan:
-                # Trình quét sẽ tự động bật camera sau khi tick
-                # Lưu ý: Kết quả trả về sẽ được lưu vào state thông qua component
-                scanned_code = auto_scanner_component()
+                auto_scanner_component()
             
-            # Ô nhập mã (nhận dữ liệu từ camera hoặc nhập tay)
-            manual_code = st.text_input("Mã vạch đã nhận:", placeholder="Đang chờ quét...")
+            # Ô nhập mã luôn hiển thị giá trị mới nhất
+            scanned_input = st.text_input("Mã vạch đã nhận:", value=st.session_state.last_scanned_code, key="barcode_input")
             
-            # Ưu tiên mã từ trình quét nếu có
-            final_code = manual_code if manual_code else ""
-            
-            product = find_product_by_barcode(final_code)
+            product = find_product_by_barcode(scanned_input)
             
             with st.form("sale_form"):
                 cust = st.text_input("Khách hàng", "Khách lẻ")
                 
-                # Tự động chọn sản phẩm nếu mã khớp
                 all_names = st.session_state.products['name'].tolist()
                 default_idx = all_names.index(product['name']) if product is not None else 0
                 
@@ -114,7 +107,7 @@ if menu == "🛒 Bán Hàng & Dịch Vụ":
                 item_info = st.session_state.products[st.session_state.products['name'] == item_name].iloc[0]
                 
                 if product is not None:
-                    st.success(f"Đã tìm thấy: {product['name']}")
+                    st.success(f"✅ Đã nhận diện: {product['name']}")
 
                 q = st.number_input(f"Số lượng ({item_info['unit']})", min_value=1, value=1)
                 p = st.number_input("Đơn giá", value=int(item_info['price']))
@@ -127,9 +120,14 @@ if menu == "🛒 Bán Hàng & Dịch Vụ":
                             idx = st.session_state.products[st.session_state.products['name'] == item_name].index[0]
                             st.session_state.products.at[idx, 'stock'] -= q
                         
-                        new_order = {"Thời Gian": datetime.now().strftime("%d/%m/%Y %H:%M"), "Khách Hàng": cust, "Sản Phẩm": item_name, "Số Lượng": q, "Đơn Giá": p, "Tổng Tiền": q*p, "Loại": item_info['category']}
+                        new_order = {
+                            "Thời Gian": datetime.now().strftime("%d/%m/%Y %H:%M"), 
+                            "Khách Hàng": cust, "Sản Phẩm": item_name, 
+                            "Số Lượng": q, "Đơn Giá": p, "Tổng Tiền": q*p, 
+                            "Loại": item_info['category']
+                        }
                         st.session_state.orders = pd.concat([pd.DataFrame([new_order]), st.session_state.orders], ignore_index=True)
-                        log_event("BÁN HÀNG", f"Bán {item_name}", q*p)
+                        st.session_state.last_scanned_code = "" # Reset mã sau khi bán
                         st.success("Đã lưu đơn hàng!")
                         st.rerun()
 
@@ -147,12 +145,11 @@ elif menu == "📦 Quản Lý Kho":
         
     with t2:
         st.subheader("Nhập thêm hàng hóa")
-        # Quét mã nhập kho
         scan_in_toggle = st.toggle("📷 Bật Camera quét mã nhập")
         if scan_in_toggle:
             auto_scanner_component()
             
-        in_bar = st.text_input("Nhập/Quét mã hàng tại đây:", key="in_bar")
+        in_bar = st.text_input("Nhập/Quét mã hàng tại đây:", value=st.session_state.last_scanned_code, key="in_bar_input")
         p_in = find_product_by_barcode(in_bar)
         
         if p_in is not None:
@@ -162,7 +159,7 @@ elif menu == "📦 Quản Lý Kho":
                 if st.form_submit_button("Xác nhận nhập"):
                     idx = st.session_state.products[st.session_state.products['barcode'] == p_in['barcode']].index[0]
                     st.session_state.products.at[idx, 'stock'] += q_in
-                    log_event("NHẬP KHO", f"Nhập {p_in['name']}", 0)
+                    st.session_state.last_scanned_code = ""
                     st.success("Đã cập nhật tồn kho!")
                     st.rerun()
 
