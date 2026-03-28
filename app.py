@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 from datetime import datetime
 
 # --- CẤU HÌNH GIAO DIỆN ---
@@ -152,10 +153,19 @@ elif menu == "📊 Báo Cáo Doanh Thu":
         
         st.divider()
         
-        # Biểu đồ doanh thu theo loại
-        st.subheader("Cơ cấu doanh thu")
-        fig = px.bar(df_o, x="Loại", y="Tổng Tiền", color="Sản Phẩm", title="Doanh thu theo nhóm hàng")
-        st.plotly_chart(fig, use_container_width=True)
+        col_chart1, col_chart2 = st.columns(2)
+        
+        with col_chart1:
+            st.subheader("Doanh thu theo nhóm hàng")
+            fig_bar = px.bar(df_o, x="Loại", y="Tổng Tiền", color="Loại", 
+                             text_auto='.2s',
+                             color_discrete_sequence=px.colors.qualitative.Pastel)
+            st.plotly_chart(fig_bar, use_container_width=True)
+            
+        with col_chart2:
+            st.subheader("Cơ cấu sản phẩm bán ra")
+            fig_pie = px.pie(df_o, values='Tổng Tiền', names='Sản Phẩm', hole=0.4)
+            st.plotly_chart(fig_pie, use_container_width=True)
         
         st.subheader("Chi tiết lịch sử bán hàng")
         st.dataframe(df_o, use_container_width=True, hide_index=True)
