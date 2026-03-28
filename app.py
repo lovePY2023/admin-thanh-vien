@@ -1,173 +1,129 @@
 import streamlit as st
-from supabase import create_client
-from datetime import datetime, timedelta
-import pytz
+import pandas as pd
+from datetime import datetime
 
-# 1. Kết nối Supabase
-url = st.secrets["SUPABASE_URL"]
-key = st.secrets["SUPABASE_KEY"]
-supabase = create_client(url, key)
+# --- CẤU HÌNH GIAO DIỆN ---
+st.set_page_config(page_title="Hệ Thống Bán Hàng & Dịch Vụ", layout="wide")
 
-st.set_page_config(page_title="Thành Viễn Admin", layout="wide")
-
-# --- DANH MỤC ---
-DANH_MUC_KHU_VUC = ["Gò Vấp", "Quận 12", "Bình Thạnh", "Phú Nhuận", "Tân Bình", "Hóc Môn", "Khác"]
-DANH_MUC_CONG_VIEC = ["Vệ sinh máy lạnh", "Bơm Gas", "Sửa máy không lạnh", "Sửa máy chảy nước", "Tháo lắp máy", "Sửa Board", "Khác..."]
-DANH_MUC_CHOT = ["Chưa Gọi", "Từ Chối", "Đã Chốt"]
-
-# --- CSS TỐI ƯU CÂN ĐỐI ---
+# --- CSS TÙY CHỈNH CHO GIAO DIỆN CÂN ĐỐI ---
 st.markdown("""
     <style>
-    .header-style { font-size:20px; font-weight:bold; color: #1E88E5; border-bottom: 2px solid #1E88E5; margin-top: 20px; padding-bottom: 5px; }
-    .today-label { color: white; background-color: #ff4b4b; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
-    
-    /* Thẻ khách hàng */
-    .title-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px; }
-    .customer-name { font-size: 18px; font-weight: 800; color: #000000; }
-    .call-link { 
-        text-decoration: none !important; 
-        background-color: #e3f2fd; 
-        color: #1e88e5 !important; 
-        padding: 4px 10px; 
-        border-radius: 15px; 
-        font-weight: bold; 
-        font-size: 14px;
-        border: 1px solid #bbdefb;
-    }
-    
-    .address-text { font-size: 15px; color: #333; line-height: 1.4; margin-bottom: 4px; }
-    
-    /* Trạng thái */
-    .note-box { background-color: #fffde7; padding: 10px; border-radius: 5px; font-size: 14px; border-left: 5px solid #fbc02d; margin: 8px 0; color: #333; }
-    .chot-box { background-color: #e8f5e9; padding: 6px; border-radius: 5px; font-size: 13px; border: 1px solid #4caf50; color: #2e7d32; font-weight: bold; text-align: center; }
-    
-    /* Nút Hoàn Thành xanh lá */
-    div.stButton > button[kind="primary"] {
-        background-color: #28a745 !important;
-        color: white !important;
-        border: none !important;
-    }
-    
-    /* Chỉ ẩn label trong Grid, giữ lại trong Form nhập */
-    div[data-testid="column"] .stSelectbox label, 
-    div[data-testid="column"] .stTextInput label { 
-        font-size: 13px; 
-    }
+    .main-header { font-size: 24px; font-weight: bold; color: #1E88E5; margin-bottom: 20px; }
+    .stButton>button { width: 100%; border-radius: 5px; height: 3em; font-weight: bold; }
+    .stock-card { background-color: #f8f9fa; padding: 10px; border-radius: 8px; border-left: 5px solid #28a745; }
+    div[data-testid="column"] { padding: 10px; }
     </style>
-    """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# --- THỜI GIAN ---
-tz = pytz.timezone('Asia/Ho_Chi_Minh')
-now_vn = datetime.now(tz)
-today = now_vn.date()
-tomorrow = today + timedelta(days=1)
-start_week = today - timedelta(days=today.weekday())
-this_week = [start_week + timedelta(days=i) for i in range(7)]
-next_week = [start_week + timedelta(days=i+7) for i in range(7)]
-days_vn = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ Nhật"]
+# --- KHỞI TẠO DỮ LIỆU (Giả lập) ---
+if 'products' not in st.session_state:
+    st.session_state.products = pd.DataFrame([
+        {"id": "P001", "name": "Máy Lạnh Inverter 1HP", "unit": "Bộ", "stock": 15, "price": 8500000, "category": "Hàng Hóa"},
+        {"id": "P002", "name": "Ống Đồng Phi 6/10", "unit": "Mét", "stock": 200, "price": 150000, "category": "Vật Tư"},
+        {"id": "S001", "name": "Vệ Sinh Máy Lạnh", "unit": "Lần", "stock": 999, "price": 200000, "category": "Dịch Vụ"},
+        {"id": "S002", "name": "Nạp Gas R32 Full", "unit": "Lần", "stock": 999, "price": 350000, "category": "Dịch Vụ"}
+    ])
 
-# --- DỮ LIỆU ---
-res = supabase.table("LichLamViec").select("*").execute()
-all_data = res.data
+if 'sales_history' not in st.session_state:
+    st.session_state.sales_history = pd.DataFrame(columns=["Ngày", "Khách Hàng", "Nội Dung", "Loại", "Thành Tiền"])
 
-st.title("❄️ Điện lạnh Thành Viễn")
+# --- GIAO DIỆN CHÍNH (2 CỘT) ---
+st.markdown('<p class="main-header">🛒 QUẢN LÝ BÁN HÀNG & DỊCH VỤ</p>', unsafe_allow_html=True)
 
-# --- FORM NHẬP LIỆU (Đã hiện chữ và cân đối hàng) ---
-with st.expander("➕ THÊM CA MÁY MỚI", expanded=True):
-    with st.form("f_nhap", clear_on_submit=True):
-        f_c1, f_c2, f_c3 = st.columns([1, 1, 1])
-        with f_c1:
-            ngay = st.date_input("Ngày hẹn", value=today)
-            ten_kh = st.text_input("Tên Khách hàng", placeholder="Nguyễn Văn A...")
-        with f_c2:
-            sdt = st.text_input("Số điện thoại", placeholder="090xxx...")
-            khu_vuc = st.selectbox("Khu vực (Quận)", DANH_MUC_KHU_VUC)
-        with f_c3:
-            dia_chi = st.text_input("Địa chỉ chi tiết", placeholder="Số nhà, tên đường...")
-            cv_chon = st.selectbox("Loại công việc", DANH_MUC_CONG_VIEC)
+left_col, right_col = st.columns([1.2, 1.8], gap="large")
+
+# --- BÊN TRÁI: FORM NHẬP THÔNG TIN ---
+with left_col:
+    st.subheader("📋 Thông Tin Đơn Hàng")
+    with st.container(border=True):
+        customer = st.text_input("Tên Khách Hàng", placeholder="Ví dụ: Anh Thành - Gò Vấp")
+        phone = st.text_input("Số Điện Thoại")
         
-        ghi_chu_dau = st.text_area("Yêu cầu khách hàng / Ghi chú ban đầu", height=60, placeholder="Máy lạnh chảy nước, cần vệ sinh...")
+        type_sale = st.radio("Loại Hình", ["Dịch Vụ (Sửa chữa/Bảo trì)", "Bán Hàng (Vật tư/Máy)"], horizontal=True)
         
-        if st.form_submit_button("LƯU VÀO HỆ THỐNG", use_container_width=True):
-            if ten_kh and sdt:
-                supabase.table("LichLamViec").insert({
-                    "TenKH": ten_kh, "SoDT": sdt, "DiaChi": dia_chi,
-                    "KhuVuc": khu_vuc, "CongViec": f"{cv_chon} | {ghi_chu_dau}",
-                    "NgayHen": str(ngay), "TrangThai": "Chờ xử lý", "ChotViec": "Chưa Gọi"
-                }).execute()
-                st.rerun()
-
-# --- HÀM HIỂN THỊ GRID ---
-def render_grid(days_list):
-    for i, d in enumerate(days_list):
-        jobs = [j for j in all_data if j.get('NgayHen') == str(d)]
-        nhan = f' <span class="today-label">HÔM NAY</span>' if d == today else ""
-        st.markdown(f"#### {days_vn[i]} ({d.strftime('%d/%m')}){nhan}", unsafe_allow_html=True)
-        
-        if not jobs:
-            st.caption("Trống lịch")
+        # Lọc danh sách item dựa trên loại hình
+        if type_sale == "Dịch Vụ (Sửa chữa/Bảo trì)":
+            options = st.session_state.products[st.session_state.products['category'] == "Dịch Vụ"]
         else:
-            grid_cols = st.columns(4) 
-            for idx, job in enumerate(jobs):
-                with grid_cols[idx % 4]:
-                    stt = job.get('TrangThai', 'Chờ xử lý')
-                    chot = job.get('ChotViec', 'Chưa Gọi') or "Chưa Gọi"
-                    
-                    with st.container(border=True):
-                        # Tên & Gọi nhanh
+            options = st.session_state.products[st.session_state.products['category'] != "Dịch Vụ"]
+            
+        selected_item = st.selectbox("Chọn Sản Phẩm / Dịch Vụ", options['name'])
+        item_info = options[options['name'] == selected_item].iloc[0]
+        
+        qty = st.number_input(f"Số lượng ({item_info['unit']})", min_value=1, value=1)
+        
+        price_custom = st.number_input("Đơn giá tùy chỉnh (VNĐ)", value=int(item_info['price']), step=10000)
+        
+        total = qty * price_custom
+        st.markdown(f"### Tổng tiền: :blue[{total:,.0f} VNĐ]")
+        
+        if st.button("XÁC NHẬN & LƯU ĐƠN", type="primary"):
+            if customer:
+                # 1. Cập nhật tồn kho nếu là Hàng hóa/Vật tư
+                if item_info['category'] != "Dịch Vụ":
+                    idx = st.session_state.products[st.session_state.products['name'] == selected_item].index[0]
+                    st.session_state.products.at[idx, 'stock'] -= qty
+                
+                # 2. Lưu lịch sử
+                new_sale = {
+                    "Ngày": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                    "Khách Hàng": customer,
+                    "Nội Dung": f"{selected_item} (x{qty})",
+                    "Loại": "Dịch Vụ" if item_info['category'] == "Dịch Vụ" else "Bán Hàng",
+                    "Thành Tiền": total
+                }
+                st.session_state.sales_history = pd.concat([pd.DataFrame([new_sale]), st.session_state.sales_history], ignore_index=True)
+                
+                st.success("Đã ghi nhận đơn hàng và cập nhật kho!")
+                st.rerun()
+            else:
+                st.error("Vui lòng nhập tên khách hàng")
+
+# --- BÊN PHẢI: KHO HÀNG & LỊCH SỬ ---
+with right_col:
+    tab1, tab2 = st.tabs(["📦 Trạng Thái Kho", "📜 Giao Dịch Gần Đây"])
+    
+    with tab1:
+        st.subheader("Tra cứu tồn kho thực tế")
+        # Tìm kiếm nhanh trong kho
+        search_q = st.text_input("🔍 Tìm tên hàng hóa/vật tư...", placeholder="Nhập tên sản phẩm...")
+        
+        display_stock = st.session_state.products.copy()
+        if search_q:
+            display_stock = display_stock[display_stock['name'].str.contains(search_q, case=False)]
+        
+        # Hiển thị Grid Kho hàng
+        for i in range(0, len(display_stock), 2):
+            cols = st.columns(2)
+            for j in range(2):
+                if i + j < len(display_stock):
+                    row = display_stock.iloc[i + j]
+                    with cols[j]:
+                        color = "#d4edda" if row['stock'] > 10 else "#fff3cd"
+                        if row['category'] == "Dịch Vụ": color = "#e2f0fe"
+                        
                         st.markdown(f"""
-                            <div class="title-row">
-                                <span class="customer-name">{job['TenKH']}</span>
-                                <a href="tel:{job['SoDT']}" class="call-link">📞 {job['SoDT']}</a>
+                            <div style="background-color: {color}; padding: 15px; border-radius: 10px; border: 1px solid #ddd; margin-bottom: 10px;">
+                                <div style="font-weight: bold; font-size: 16px;">{row['name']}</div>
+                                <div style="display: flex; justify-content: space-between; margin-top: 5px;">
+                                    <span>Tồn: <b>{row['stock']} {row['unit']}</b></span>
+                                    <span style="color: #1E88E5;">{row['price']:,.0f} đ</span>
+                                </div>
+                                <div style="font-size: 12px; color: #666; margin-top: 3px;">Mã: {row['id']} | {row['category']}</div>
                             </div>
                         """, unsafe_allow_html=True)
+    
+    with tab2:
+        st.subheader("Các đơn hàng đã chốt")
+        if st.session_state.sales_history.empty:
+            st.info("Chưa có đơn hàng nào trong phiên làm việc này.")
+        else:
+            st.dataframe(st.session_state.sales_history, use_container_width=True, hide_index=True)
+            
+            # Tính doanh thu nhanh
+            total_rev = st.session_state.sales_history['Thành Tiền'].sum()
+            st.metric("Tổng Doanh Thu Phiên Này", f"{total_rev:,.0f} VNĐ")
 
-                        st.markdown(f"<div class='address-text'>📍 {job['KhuVuc']} - {job['DiaChi']}</div>", unsafe_allow_html=True)
-                        
-                        if chot == "Đã Chốt":
-                            st.markdown(f"<div class='chot-box'>✅ ĐÃ CHỐT LỊCH</div>", unsafe_allow_html=True)
-                        
-                        st.markdown(f"<div class='address-text'>🛠️ {job.get('CongViec', 'N/A')}</div>", unsafe_allow_html=True)
-                        
-                        if job.get("GhiChuThem"):
-                            st.markdown(f"<div class='note-box'>📝 {job['GhiChuThem']}</div>", unsafe_allow_html=True)
-
-                        # Menu thao tác
-                        if stt != "Hoàn thành":
-                            with st.popover("⚙️ Thao tác / Xong", use_container_width=True):
-                                st.write("**Trạng thái chốt việc:**")
-                                idx_ch = DANH_MUC_CHOT.index(chot) if chot in DANH_MUC_CHOT else 0
-                                moi_ch = st.selectbox("S", DANH_MUC_CHOT, index=idx_ch, key=f"s_{job['id']}", label_visibility="collapsed")
-                                if moi_ch != chot:
-                                    up = {"ChotViec": moi_ch}
-                                    if moi_ch == "Từ Chối": up["TrangThai"] = "Hoàn thành"
-                                    supabase.table("LichLamViec").update(up).eq("id", job['id']).execute()
-                                    st.rerun()
-
-                                st.write("**Ghi chú vật tư:**")
-                                note_val = st.text_input("G", key=f"in_{job['id']}", value=job.get("GhiChuThem", ""), label_visibility="collapsed")
-                                
-                                c_b1, c_b2 = st.columns(2)
-                                if c_b1.button("💾 LƯU", key=f"v_{job['id']}", use_container_width=True):
-                                    supabase.table("LichLamViec").update({"GhiChuThem": note_val}).eq("id", job['id']).execute()
-                                    st.rerun()
-                                if c_b2.button("🗑️ XÓA", key=f"l_{job['id']}", use_container_width=True):
-                                    supabase.table("LichLamViec").delete().eq("id", job['id']).execute()
-                                    st.rerun()
-                                    
-                                if st.button("✅ HOÀN THÀNH", key=f"d_{job['id']}", use_container_width=True, type="primary"):
-                                    t_now = datetime.now(tz).strftime("%H:%M - %d/%m")
-                                    supabase.table("LichLamViec").update({"TrangThai": "Hoàn thành", "GhiChuThem": note_val, "ThoiGianXong": t_now}).eq("id", job['id']).execute()
-                                    st.rerun()
-                        else:
-                            st.success(f"Xong: {job.get('ThoiGianXong', 'N/A')}")
-                            if st.button("Xóa ca máy", key=f"del_{job['id']}", use_container_width=True):
-                                supabase.table("LichLamViec").delete().eq("id", job['id']).execute()
-                                st.rerun()
-
-# --- HIỂN THỊ ---
-st.markdown('<p class="header-style">🗓️ TUẦN NÀY</p>', unsafe_allow_html=True)
-render_grid(this_week)
-
-st.markdown('<p class="header-style">⏭️ TUẦN TIẾP THEO</p>', unsafe_allow_html=True)
-render_grid(next_week)
+# --- FOOTER ---
+st.divider()
+st.caption("MiniERP v1.0 - Hệ thống hỗ trợ Bán hàng & Định khoản nháp")
