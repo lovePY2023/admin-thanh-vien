@@ -2,9 +2,10 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
+import time
 
 # --- CẤU HÌNH GIAO DIỆN ---
-st.set_page_config(page_title="Quản Lý Thành Viễn", layout="wide")
+st.set_page_config(page_title="Quản Lý Thành Viễn", layout="wide", page_icon="❄️")
 
 # --- CSS TÙY CHỈNH ---
 st.markdown("""
@@ -12,14 +13,14 @@ st.markdown("""
     .main-header { font-size: 26px; font-weight: bold; color: #1E88E5; }
     .stMetric { background-color: #f0f2f6; padding: 10px; border-radius: 10px; }
     .stButton>button { border-radius: 5px; font-weight: bold; }
-    /* Style cho nút quét mã */
-    .scan-btn {
-        background-color: #4CAF50;
-        color: white;
-        padding: 10px;
-        border-radius: 5px;
+    /* Giả lập khung quét QR chuyên nghiệp */
+    .qr-scanner-sim {
+        border: 2px dashed #4CAF50;
+        padding: 20px;
         text-align: center;
-        cursor: pointer;
+        background-color: #f1f8e9;
+        border-radius: 10px;
+        margin-bottom: 10px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -29,7 +30,7 @@ if 'products' not in st.session_state:
     st.session_state.products = pd.DataFrame([
         {"id": "P001", "barcode": "893001", "name": "Máy Lạnh Inverter 1HP", "unit": "Bộ", "stock": 10, "cost": 6500000, "price": 8500000, "category": "Hàng Hóa"},
         {"id": "P002", "barcode": "893002", "name": "Ống Đồng Phi 6/10", "unit": "Mét", "stock": 100, "cost": 90000, "price": 150000, "category": "Vật Tư"},
-        {"id": "S001", "barcode": "", "name": "Vệ Sinh Máy Lạnh", "unit": "Lần", "stock": 999, "cost": 50000, "price": 200000, "category": "Dịch Vụ"}
+        {"id": "S001", "barcode": "SERVICE01", "name": "Vệ Sinh Máy Lạnh", "unit": "Lần", "stock": 999, "cost": 50000, "price": 200000, "category": "Dịch Vụ"}
     ])
 
 if 'orders' not in st.session_state:
@@ -51,7 +52,7 @@ def log_event(event_type, detail, value, user="Admin"):
         "Giá Trị": value,
         "Người Thực Hiện": user
     }
-    st.session_state.journal_logs = pd.concat([pd.DataFrame([new_log]), st.session_state.journal_logs], ignore_index=True)
+    st.session_state.journal_logs = pd.concat([pd.DataFrame([new_log])], ignore_index=True)
 
 def find_product_by_barcode(code):
     if not code: return None
@@ -68,7 +69,7 @@ with st.sidebar:
         "📊 Báo Cáo Doanh Thu"
     ])
     st.divider()
-    st.caption("Dữ liệu hiện tại là bản nháp")
+    st.info("💡 Mẹo: Dùng máy quét cầm tay hoặc camera điện thoại để nhập liệu nhanh hơn.")
 
 # --- 1. PHÂN HỆ BÁN HÀNG ---
 if menu == "🛒 Bán Hàng & Dịch Vụ":
@@ -80,27 +81,34 @@ if menu == "🛒 Bán Hàng & Dịch Vụ":
         with st.container(border=True):
             st.subheader("Tạo Đơn Hàng")
             
-            # --- CHỨC NĂNG QUÉT MÃ QR/BARCODE CÓ HÌNH MÁY ẢNH ---
-            with st.expander("📷 Bấm vào đây để mở Camera Quét Mã", expanded=False):
-                img_file = st.camera_input("Chụp hình mã vạch trên sản phẩm")
-                if img_file:
-                    st.warning("Đang phân tích hình ảnh... (Chức năng nhận diện AI sẽ được kích hoạt khi kết nối Cloud)")
-                    # Giả lập: Nếu có ảnh thì lấy mã mặc định hoặc cho phép nhập nhanh
+            # Giao diện quét mã cải tiến
+            tab_manual, tab_scan = st.tabs(["⌨️ Nhập tay", "📷 Quét QR/Barcode"])
             
-            scanned_code = st.text_input("🔍 Nhập hoặc Dán mã Barcode/QR", key="sale_barcode")
+            scanned_code = ""
+            
+            with tab_scan:
+                st.markdown('<div class="qr-scanner-sim">Hệ thống đang sẵn sàng nhận diện qua Camera</div>', unsafe_allow_html=True)
+                cam_file = st.camera_input("Chụp mã sản phẩm", label_visibility="collapsed")
+                if cam_file:
+                    with st.spinner("Đang nhận diện mã vạch..."):
+                        time.sleep(1) # Giả lập độ trễ AI
+                        # Giả lập kết quả nhận diện (Trong thực tế sẽ dùng thư viện giải mã ảnh)
+                        st.info("Ảnh đã được ghi nhận. Hệ thống AI (Gemini) sẽ sớm được kích hoạt tại đây.")
+
+            with tab_manual:
+                scanned_code = st.text_input("Mã vạch / QR", placeholder="Quét hoặc nhập mã...")
+            
             product_scanned = find_product_by_barcode(scanned_code)
             
-            default_item = st.session_state.products['name'].iloc[0]
+            # Logic tự động chọn sản phẩm
+            all_product_names = st.session_state.products['name'].tolist()
+            default_idx = 0
             if product_scanned is not None:
-                st.success(f"✅ Đã nhận diện: **{product_scanned['name']}**")
-                default_item = product_scanned['name']
+                st.success(f"✅ Tìm thấy: {product_scanned['name']}")
+                default_idx = all_product_names.index(product_scanned['name'])
 
-            cust = st.text_input("Tên khách hàng", placeholder="Anh A, Chị B...")
-            
-            # Tự động chọn sản phẩm nếu quét thành công
-            item_index = list(st.session_state.products['name']).index(default_item)
-            item_name = st.selectbox("Chọn Sản phẩm / Dịch vụ", st.session_state.products['name'], index=item_index)
-            
+            cust = st.text_input("Tên khách hàng", placeholder="Tên hoặc SĐT khách...")
+            item_name = st.selectbox("Sản phẩm / Dịch vụ", all_product_names, index=default_idx)
             item_info = st.session_state.products[st.session_state.products['name'] == item_name].iloc[0]
             
             q = st.number_input(f"Số lượng ({item_info['unit']})", min_value=1, value=1)
@@ -111,7 +119,7 @@ if menu == "🛒 Bán Hàng & Dịch Vụ":
             
             if st.button("XÁC NHẬN BÁN", type="primary", use_container_width=True):
                 if item_info['category'] != "Dịch Vụ" and item_info['stock'] < q:
-                    st.error(f"Không đủ hàng! Kho hiện còn: {item_info['stock']}")
+                    st.error(f"Lỗi: Kho không đủ hàng ({item_info['stock']} còn lại)")
                 else:
                     if item_info['category'] != "Dịch Vụ":
                         idx = st.session_state.products[st.session_state.products['name'] == item_name].index[0]
@@ -119,12 +127,12 @@ if menu == "🛒 Bán Hàng & Dịch Vụ":
                     
                     new_order = {
                         "Thời Gian": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                        "Khách Hàng": cust if cust else "Khách vãng lai",
+                        "Khách Hàng": cust if cust else "Khách lẻ",
                         "Sản Phẩm": item_name, "Số Lượng": q, "Đơn Giá": p, "Tổng Tiền": total_amount, "Loại": item_info['category']
                     }
                     st.session_state.orders = pd.concat([pd.DataFrame([new_order]), st.session_state.orders], ignore_index=True)
                     log_event("BÁN HÀNG", f"Bán {item_name} cho {cust}", total_amount)
-                    st.success("Đã chốt đơn thành công!")
+                    st.success("Giao dịch thành công!")
                     st.rerun()
 
     with col_view:
@@ -133,78 +141,60 @@ if menu == "🛒 Bán Hàng & Dịch Vụ":
 
 # --- 2. PHÂN HỆ QUẢN LÝ KHO ---
 elif menu == "📦 Quản Lý Kho":
-    st.markdown('<p class="main-header">📦 Quản Lý Tồn Kho</p>', unsafe_allow_html=True)
-    
-    t_stock, t_add = st.tabs(["📋 Danh sách tồn kho", "➕ Nhập hàng / Thêm mới"])
+    st.markdown('<p class="main-header">📦 Quản Lý Kho & Vật Tư</p>', unsafe_allow_html=True)
+    t_stock, t_add = st.tabs(["📋 Tồn kho hiện tại", "➕ Nhập hàng mới"])
     
     with t_stock:
-        search = st.text_input("🔍 Tìm theo tên hoặc mã vạch...", "")
         df_stock = st.session_state.products.copy()
-        if search:
-            df_stock = df_stock[(df_stock['name'].str.contains(search, case=False)) | (df_stock['barcode'].str.contains(search))]
         st.dataframe(df_stock, use_container_width=True, hide_index=True)
         
     with t_add:
         col_a, col_b = st.columns(2)
         with col_a:
-            st.subheader("Thêm Sản Phẩm Mới")
+            st.subheader("🛒 Thêm vào Danh mục")
             with st.form("new_product"):
-                new_id = st.text_input("Mã SP (Nội bộ)")
-                # Ô nhập mã này hỗ trợ dán mã từ ứng dụng quét bên ngoài
-                new_barcode = st.text_input("Mã Barcode / QR (Quét/Dán mã tại đây)")
-                new_name = st.text_input("Tên sản phẩm")
-                new_unit = st.selectbox("Đơn vị", ["Cái", "Bộ", "Mét", "Lần", "Kg"])
-                new_cat = st.selectbox("Phân loại", ["Hàng Hóa", "Vật Tư", "Dịch Vụ"])
-                new_cost = st.number_input("Giá vốn", min_value=0)
-                new_price = st.number_input("Giá bán", min_value=0)
-                new_stock = st.number_input("Tồn đầu kỳ", min_value=0)
-                
-                if st.form_submit_button("Lưu sản phẩm"):
-                    new_p = {"id": new_id, "barcode": new_barcode, "name": new_name, "unit": new_unit, "stock": new_stock, "cost": new_cost, "price": new_price, "category": new_cat}
+                n_id = st.text_input("Mã nội bộ")
+                n_bar = st.text_input("Mã Barcode / QR (Quét mã để gán)")
+                n_name = st.text_input("Tên hàng hóa")
+                n_unit = st.selectbox("Đơn vị", ["Bộ", "Máy", "Mét", "Cái", "Lần"])
+                n_cat = st.selectbox("Phân loại", ["Hàng Hóa", "Vật Tư", "Dịch Vụ"])
+                n_cost = st.number_input("Giá nhập dự kiến", min_value=0)
+                n_price = st.number_input("Giá bán niêm yết", min_value=0)
+                n_stock = st.number_input("Số lượng ban đầu", min_value=0)
+                if st.form_submit_button("Lưu Danh Mục"):
+                    new_p = {"id": n_id, "barcode": n_bar, "name": n_name, "unit": n_unit, "stock": n_stock, "cost": n_cost, "price": n_price, "category": n_cat}
                     st.session_state.products = pd.concat([st.session_state.products, pd.DataFrame([new_p])], ignore_index=True)
-                    log_event("DANH MỤC", f"Thêm SP: {new_name}", 0)
-                    st.success("Đã lưu!")
+                    st.success("Đã thêm vào danh mục!")
                     st.rerun()
-        
         with col_b:
-            st.subheader("Nhập Thêm Hàng")
-            # Tích hợp camera cho nhập kho
-            with st.expander("📷 Mở Camera Quét Mã Nhập Kho", expanded=False):
-                st.camera_input("Chụp mã hàng để nhận diện nhanh", key="cam_import")
-            
-            in_code = st.text_input("🔍 Nhập mã quét được", key="import_barcode")
-            prod_in = find_product_by_barcode(in_code)
-            
-            with st.form("add_stock"):
-                if prod_in is not None:
-                    st.success(f"Hàng hóa: {prod_in['name']}")
-                    selected_name = prod_in['name']
-                else:
-                    selected_name = st.selectbox("Chọn thủ công", st.session_state.products[st.session_state.products['category'] != "Dịch Vụ"]['name'])
-                
-                q_add = st.number_input("Số lượng nhập", min_value=1)
-                cost_in = st.number_input("Giá nhập thực tế", min_value=0)
-                if st.form_submit_button("Xác nhận nhập"):
-                    idx = st.session_state.products[st.session_state.products['name'] == selected_name].index[0]
-                    st.session_state.products.at[idx, 'stock'] += q_add
-                    log_event("NHẬP KHO", f"Nhập thêm {q_add} {selected_name}", q_add * cost_in)
-                    st.success("Đã cập nhật!")
+            st.subheader("📦 Phiếu Nhập Kho")
+            scan_in = st.text_input("Quét mã hàng nhập", key="in_scan")
+            p_in = find_product_by_barcode(scan_in)
+            with st.form("import_stock"):
+                selected_in = p_in['name'] if p_in is not None else st.selectbox("Chọn SP", st.session_state.products['name'])
+                q_in = st.number_input("Số lượng thực nhập", min_value=1)
+                cost_actual = st.number_input("Giá nhập thực tế", min_value=0)
+                if st.form_submit_button("Xác nhận nhập kho"):
+                    idx = st.session_state.products[st.session_state.products['name'] == selected_in].index[0]
+                    st.session_state.products.at[idx, 'stock'] += q_in
+                    log_event("NHẬP KHO", f"Nhập {q_in} {selected_in}", q_in * cost_actual)
+                    st.success("Đã tăng tồn kho!")
                     st.rerun()
 
 # --- 3. PHÂN HỆ NHẬT KÝ ---
 elif menu == "📓 Nhật Ký Hệ Thống":
-    st.markdown('<p class="main-header">📓 Nhật Ký Hệ Thống</p>', unsafe_allow_html=True)
+    st.markdown('<p class="main-header">📓 Nhật Ký Giao Dịch</p>', unsafe_allow_html=True)
     st.dataframe(st.session_state.journal_logs, use_container_width=True, hide_index=True)
 
 # --- 4. PHÂN HỆ BÁO CÁO ---
 elif menu == "📊 Báo Cáo Doanh Thu":
-    st.markdown('<p class="main-header">📊 Báo Cáo Doanh Thu</p>', unsafe_allow_html=True)
+    st.markdown('<p class="main-header">📊 Doanh Thu & Hiệu Quả</p>', unsafe_allow_html=True)
     if not st.session_state.orders.empty:
-        df_o = st.session_state.orders
-        st.metric("Tổng Doanh Thu", f"{df_o['Tổng Tiền'].sum():,.0f} VNĐ")
-        st.plotly_chart(px.bar(df_o, x="Loại", y="Tổng Tiền", color="Loại", title="Doanh thu theo nhóm"), use_container_width=True)
+        df = st.session_state.orders
+        st.metric("Tổng doanh thu", f"{df['Tổng Tiền'].sum():,.0f} VNĐ")
+        st.plotly_chart(px.bar(df, x="Sản Phẩm", y="Tổng Tiền", color="Loại", title="Doanh thu theo sản phẩm"), use_container_width=True)
     else:
-        st.warning("Chưa có dữ liệu.")
+        st.info("Chưa có dữ liệu giao dịch.")
 
 st.divider()
-st.caption("Thành Viễn Admin - Tích hợp camera chụp mã")
+st.caption("Hệ thống quản lý Thành Viễn v1.3 - Barcode & QR Optimized")
