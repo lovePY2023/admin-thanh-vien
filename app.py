@@ -4,7 +4,7 @@ from datetime import datetime
 
 # --- CẤU HÌNH TRANG ---
 st.set_page_config(
-    page_title="Thành Viễn ERP - Nhập Nhanh Multi-POS",
+    page_title="Thành Viễn ERP - Nhập Đơn Hàng",
     page_icon="⚡",
     layout="wide"
 )
@@ -37,6 +37,14 @@ st.markdown("""
         color: white;
         border-radius: 5px;
         margin-bottom: 15px;
+        font-weight: bold;
+    }
+    .info-box {
+        background-color: #f0f2f6;
+        padding: 15px;
+        border-radius: 10px;
+        border-left: 5px solid #007bff;
+        margin-bottom: 20px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -74,19 +82,28 @@ def init_data():
 init_data()
 
 def main():
-    st.title("⚡ Nhập Đơn Hàng Thành Viễn")
+    st.title("⚡ Lập Đơn Hàng Thành Viễn")
     
-    # Thông tin khách hàng & Chế độ
-    with st.container(border=True):
-        c1, c2, c3 = st.columns([2, 1, 1])
-        customer = c1.selectbox("Chọn Khách Hàng", ["Khách lẻ", "Đại lý Thành Viễn", "Cửa hàng vật tư X"])
-        date = c2.date_input("Ngày chứng từ", datetime.now())
-        mode = c3.radio("PHÂN HỆ BÁN HÀNG", ["Viễn Thông", "Điện Lạnh"], horizontal=True)
+    # --- PHẦN 1: THÔNG TIN KHÁCH HÀNG (FULL FORM) ---
+    st.markdown('<div class="section-header">👤 THÔNG TIN KHÁCH HÀNG</div>', unsafe_allow_html=True)
+    with st.container():
+        row1_col1, row1_col2, row1_col3 = st.columns([2, 1, 1])
+        cust_name = row1_col1.text_input("Tên khách hàng / Đơn vị", placeholder="Nhập tên khách hàng...")
+        cust_phone = row1_col2.text_input("Số điện thoại", placeholder="090x.xxx.xxx")
+        order_date = row1_col3.date_input("Ngày chứng từ", datetime.now())
 
+        row2_col1, row2_col2, row2_col3 = st.columns([2, 1, 1])
+        cust_address = row2_col1.text_input("Địa chỉ chi tiết", placeholder="Số nhà, tên đường...")
+        cust_area = row2_col2.selectbox("Khu vực / Quận huyện", 
+                                        ["Quận 1", "Quận 3", "Quận Bình Thạnh", "Quận Gò Vấp", "Quận Tân Bình", "Khác"])
+        sale_mode = row2_col3.radio("PHÂN HỆ BÁN HÀNG", ["Viễn Thông", "Điện Lạnh"], horizontal=True)
+
+    st.write("")
     order_items = {} 
 
-    if mode == "Viễn Thông":
-        st.markdown('<div class="section-header">📶 PHÂN HỆ VIỄN THÔNG (THẺ CÀO)</div>', unsafe_allow_html=True)
+    # --- PHẦN 2: NHẬP SỐ LƯỢNG (QUICK GRID) ---
+    if sale_mode == "Viễn Thông":
+        st.markdown('<div class="section-header">📶 PHÂN HỆ VIỄN THÔNG (THỂ CÀO)</div>', unsafe_allow_html=True)
         col_left, col_right = st.columns(2)
         
         with col_left:
@@ -123,7 +140,7 @@ def main():
 
     st.divider()
 
-    # XỬ LÝ DỮ LIỆU TÓM TẮT ĐƠN HÀNG
+    # --- PHẦN 3: TÓM TẮT & XÁC NHẬN ---
     summary_data = []
     total_bill = 0
     for name, info in order_items.items():
@@ -138,11 +155,14 @@ def main():
                 "Thành tiền": subtotal
             })
 
-    # HIỂN THỊ FRAME TÓM TẮT
     st.subheader("📋 Tóm tắt đơn hàng")
     if summary_data:
+        # Hiển thị thông tin khách hàng tóm lược
+        if cust_name:
+            st.markdown(f"**Khách hàng:** {cust_name} | **SĐT:** {cust_phone} | **Khu vực:** {cust_area}")
+            st.markdown(f"**Địa chỉ:** {cust_address}")
+        
         df_summary = pd.DataFrame(summary_data)
-        # Định dạng tiền tệ cho bảng
         df_display = df_summary.copy()
         df_display['Đơn giá'] = df_display['Đơn giá'].map('{:,.0f}đ'.format)
         df_display['Thành tiền'] = df_display['Thành tiền'].map('{:,.0f}đ'.format)
@@ -151,9 +171,13 @@ def main():
         
         c_f1, c_f2 = st.columns([2, 1])
         c_f1.markdown(f"### TỔNG CỘNG: <span style='color:red'>{total_bill:,.0f} VNĐ</span>", unsafe_allow_html=True)
+        
         if c_f2.button("XÁC NHẬN & LƯU HÓA ĐƠN", type="primary", use_container_width=True):
-            st.success("Đã ghi nhận giao dịch thành công!")
-            st.balloons()
+            if not cust_name:
+                st.error("Vui lòng nhập tên khách hàng trước khi lưu!")
+            else:
+                st.success(f"Đã lưu đơn hàng cho khách {cust_name} thành công!")
+                st.balloons()
     else:
         st.write("*(Chưa có mặt hàng nào được chọn)*")
 
