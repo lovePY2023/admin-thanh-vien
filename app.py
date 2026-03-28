@@ -16,7 +16,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- KHỞI TẠO DỮ LIỆU (SESSION STATE) ---
+# --- KHỞI TẠO DỮ LIỆU (SESSION STATE - BẢN NHÁP) ---
 if 'products' not in st.session_state:
     st.session_state.products = pd.DataFrame([
         {"id": "P001", "name": "Máy Lạnh Inverter 1HP", "unit": "Bộ", "stock": 10, "cost": 6500000, "price": 8500000, "category": "Hàng Hóa"},
@@ -29,12 +29,34 @@ if 'orders' not in st.session_state:
         "Thời Gian", "Khách Hàng", "Sản Phẩm", "Số Lượng", "Đơn Giá", "Tổng Tiền", "Loại"
     ])
 
+if 'journal_logs' not in st.session_state:
+    # Nhật ký ghi lại mọi biến động (Bán hàng, Nhập kho)
+    st.session_state.journal_logs = pd.DataFrame(columns=[
+        "Thời Gian", "Loại Giao Dịch", "Chi Tiết", "Giá Trị", "Người Thực Hiện"
+    ])
+
+# --- HÀM GHI NHẬT KÝ ---
+def log_event(event_type, detail, value, user="Admin"):
+    new_log = {
+        "Thời Gian": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        "Loại Giao Dịch": event_type,
+        "Chi Tiết": detail,
+        "Giá Trị": value,
+        "Người Thực Hiện": user
+    }
+    st.session_state.journal_logs = pd.concat([pd.DataFrame([new_log]), st.session_state.journal_logs], ignore_index=True)
+
 # --- THANH MENU BÊN TRÁI ---
 with st.sidebar:
     st.title("❄️ Thành Viễn ERP")
-    menu = st.radio("Chức năng chính", ["🛒 Bán Hàng & Dịch Vụ", "📦 Quản Lý Kho", "📊 Báo Cáo Doanh Thu"])
+    menu = st.radio("Chức năng chính", [
+        "🛒 Bán Hàng & Dịch Vụ", 
+        "📦 Quản Lý Kho", 
+        "📓 Nhật Ký Hệ Thống",
+        "📊 Báo Cáo Doanh Thu"
+    ])
     st.divider()
-    st.caption("Giai đoạn: Vận hành & Kho")
+    st.caption("Dữ liệu hiện tại là bản nháp (Session State)")
 
 # --- 1. PHÂN HỆ BÁN HÀNG ---
 if menu == "🛒 Bán Hàng & Dịch Vụ":
@@ -47,7 +69,6 @@ if menu == "🛒 Bán Hàng & Dịch Vụ":
             st.subheader("Tạo Đơn Hàng")
             cust = st.text_input("Tên khách hàng", placeholder="Anh A, Chị B...")
             
-            # Lọc danh mục sản phẩm/dịch vụ
             item_name = st.selectbox("Chọn Sản phẩm / Dịch vụ", st.session_state.products['name'])
             item_info = st.session_state.products[st.session_state.products['name'] == item_name].iloc[0]
             
@@ -58,7 +79,6 @@ if menu == "🛒 Bán Hàng & Dịch Vụ":
             st.markdown(f"### Tổng: :blue[{total_amount:,.0f} VNĐ]")
             
             if st.button("XÁC NHẬN BÁN", type="primary", use_container_width=True):
-                # Kiểm tra tồn kho trước khi bán (nếu không phải dịch vụ)
                 if item_info['category'] != "Dịch Vụ" and item_info['stock'] < q:
                     st.error(f"Không đủ hàng! Kho hiện còn: {item_info['stock']}")
                 else:
@@ -78,15 +98,16 @@ if menu == "🛒 Bán Hàng & Dịch Vụ":
                         "Loại": item_info['category']
                     }
                     st.session_state.orders = pd.concat([pd.DataFrame([new_order]), st.session_state.orders], ignore_index=True)
+                    
+                    # 3. Ghi Nhật ký
+                    log_event("BÁN HÀNG", f"Bán {item_name} cho {cust}", total_amount)
+                    
                     st.success("Đã chốt đơn thành công!")
                     st.rerun()
 
     with col_view:
-        st.subheader("Giao dịch vừa thực hiện")
-        if not st.session_state.orders.empty:
-            st.dataframe(st.session_state.orders.head(10), use_container_width=True, hide_index=True)
-        else:
-            st.info("Chưa có đơn hàng nào trong phiên này.")
+        st.subheader("Giao dịch gần đây")
+        st.dataframe(st.session_state.orders.head(10), use_container_width=True, hide_index=True)
 
 # --- 2. PHÂN HỆ QUẢN LÝ KHO ---
 elif menu == "📦 Quản Lý Kho":
@@ -95,12 +116,10 @@ elif menu == "📦 Quản Lý Kho":
     t_stock, t_add = st.tabs(["📋 Danh sách tồn kho", "➕ Nhập hàng / Thêm mới"])
     
     with t_stock:
-        # Tìm kiếm sản phẩm
         search = st.text_input("🔍 Tìm kiếm sản phẩm...", "")
         df_stock = st.session_state.products.copy()
         if search:
             df_stock = df_stock[df_stock['name'].str.contains(search, case=False)]
-        
         st.dataframe(df_stock, use_container_width=True, hide_index=True)
         
     with t_add:
@@ -108,69 +127,71 @@ elif menu == "📦 Quản Lý Kho":
         with col_a:
             st.subheader("Thêm Sản Phẩm Mới")
             with st.form("new_product"):
-                new_id = st.text_input("Mã SP (Ví dụ: P003)")
+                new_id = st.text_input("Mã SP")
                 new_name = st.text_input("Tên sản phẩm")
                 new_unit = st.selectbox("Đơn vị", ["Cái", "Bộ", "Mét", "Lần", "Kg"])
                 new_cat = st.selectbox("Phân loại", ["Hàng Hóa", "Vật Tư", "Dịch Vụ"])
-                new_cost = st.number_input("Giá vốn nhập", min_value=0)
-                new_price = st.number_input("Giá bán niêm yết", min_value=0)
-                new_stock = st.number_input("Tồn kho ban đầu", min_value=0)
+                new_cost = st.number_input("Giá vốn", min_value=0)
+                new_price = st.number_input("Giá bán", min_value=0)
+                new_stock = st.number_input("Tồn đầu kỳ", min_value=0)
                 
                 if st.form_submit_button("Lưu sản phẩm"):
-                    new_p = {
-                        "id": new_id, "name": new_name, "unit": new_unit,
-                        "stock": new_stock, "cost": new_cost, "price": new_price, "category": new_cat
-                    }
+                    new_p = {"id": new_id, "name": new_name, "unit": new_unit, "stock": new_stock, "cost": new_cost, "price": new_price, "category": new_cat}
                     st.session_state.products = pd.concat([st.session_state.products, pd.DataFrame([new_p])], ignore_index=True)
-                    st.success("Đã thêm sản phẩm mới!")
+                    log_event("DANH MỤC", f"Thêm sản phẩm mới: {new_name}", 0)
+                    st.success("Đã thêm sản phẩm!")
                     st.rerun()
         
         with col_b:
-            st.subheader("Nhập Thêm Hàng (Tăng kho)")
+            st.subheader("Nhập Thêm Hàng")
             with st.form("add_stock"):
-                p_select = st.selectbox("Sản phẩm sẵn có", st.session_state.products[st.session_state.products['category'] != "Dịch Vụ"]['name'])
-                q_add = st.number_input("Số lượng nhập thêm", min_value=1)
+                p_select = st.selectbox("Sản phẩm", st.session_state.products[st.session_state.products['category'] != "Dịch Vụ"]['name'])
+                q_add = st.number_input("Số lượng nhập", min_value=1)
+                cost_in = st.number_input("Giá nhập thực tế", min_value=0)
                 if st.form_submit_button("Xác nhận nhập"):
                     idx = st.session_state.products[st.session_state.products['name'] == p_select].index[0]
                     st.session_state.products.at[idx, 'stock'] += q_add
-                    st.success(f"Đã cập nhật tồn kho cho {p_select}")
+                    log_event("NHẬP KHO", f"Nhập thêm {q_add} {p_select}", q_add * cost_in)
+                    st.success(f"Đã nhập kho {p_select}")
                     st.rerun()
 
-# --- 3. PHÂN HỆ BÁO CÁO ---
+# --- 3. PHÂN HỆ NHẬT KÝ ---
+elif menu == "📓 Nhật Ký Hệ Thống":
+    st.markdown('<p class="main-header">📓 Nhật Ký Giao Dịch & Biến Động</p>', unsafe_allow_html=True)
+    st.write("Dưới đây là lịch sử ghi lại toàn bộ hoạt động của hệ thống (Bán hàng, nhập kho, chỉnh sửa danh mục).")
+    
+    if not st.session_state.journal_logs.empty:
+        st.dataframe(st.session_state.journal_logs, use_container_width=True, hide_index=True)
+        
+        # Nút xóa nhật ký (Chỉ dùng cho bản nháp)
+        if st.button("Xóa trắng nhật ký"):
+            st.session_state.journal_logs = st.session_state.journal_logs.iloc[0:0]
+            st.rerun()
+    else:
+        st.info("Chưa có ghi chép nào trong nhật ký.")
+
+# --- 4. PHÂN HỆ BÁO CÁO ---
 elif menu == "📊 Báo Cáo Doanh Thu":
     st.markdown('<p class="main-header">📊 Báo Cáo Kinh Doanh</p>', unsafe_allow_html=True)
     
     if not st.session_state.orders.empty:
         df_o = st.session_state.orders
-        
-        # Chỉ số tổng quát
         total_sales = df_o['Tổng Tiền'].sum()
-        total_orders = len(df_o)
         
         c1, c2 = st.columns(2)
         c1.metric("Tổng Doanh Thu", f"{total_sales:,.0f} VNĐ")
-        c2.metric("Tổng Số Đơn Hàng", total_orders)
+        c2.metric("Tổng Số Đơn Hàng", len(df_o))
         
         st.divider()
-        
         col_chart1, col_chart2 = st.columns(2)
-        
         with col_chart1:
-            st.subheader("Doanh thu theo nhóm hàng")
-            fig_bar = px.bar(df_o, x="Loại", y="Tổng Tiền", color="Loại", 
-                             text_auto='.2s',
-                             color_discrete_sequence=px.colors.qualitative.Pastel)
+            fig_bar = px.bar(df_o, x="Loại", y="Tổng Tiền", color="Loại", title="Doanh thu theo nhóm")
             st.plotly_chart(fig_bar, use_container_width=True)
-            
         with col_chart2:
-            st.subheader("Cơ cấu sản phẩm bán ra")
-            fig_pie = px.pie(df_o, values='Tổng Tiền', names='Sản Phẩm', hole=0.4)
+            fig_pie = px.pie(df_o, values='Tổng Tiền', names='Sản Phẩm', hole=0.4, title="Tỷ trọng sản phẩm")
             st.plotly_chart(fig_pie, use_container_width=True)
-        
-        st.subheader("Chi tiết lịch sử bán hàng")
-        st.dataframe(df_o, use_container_width=True, hide_index=True)
     else:
-        st.warning("Chưa có dữ liệu đơn hàng để báo cáo.")
+        st.warning("Chưa có dữ liệu đơn hàng.")
 
 st.divider()
-st.caption("MiniERP v1.2 - Tập trung vận hành Bán hàng & Kho")
+st.caption("Thành Viễn Admin - Giao diện thử nghiệm vận hành")
